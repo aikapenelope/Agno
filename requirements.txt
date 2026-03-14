@@ -1,0 +1,15 @@
+# NEXUS Cerebro - Dependencies
+# Based on official Agno optional dependency groups from pyproject.toml
+
+# Core: Agno with AgentOS runtime (includes FastAPI, uvicorn, sqlalchemy, tracing)
+agno[os]
+
+# Model: Groq provider
+agno[groq]
+
+# Tools: Web search (DuckDuckGo) and MCP
+agno[ddg]
+agno[mcp]
+
+# Storage: SQLite backend
+agno[sqlite]
