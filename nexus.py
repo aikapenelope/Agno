@@ -15,8 +15,9 @@ Based on official Agno cookbook patterns:
 Prerequisites:
     pip install -r requirements.txt
 
-    Set environment variable (or add to ~/.zshrc for persistence):
+    Set environment variables (or add to ~/.zshrc for persistence):
         export GROQ_API_KEY="your-groq-api-key"
+        export VOYAGE_API_KEY="your-voyage-api-key"
 
     Optional MCP servers (connect when ready):
         - Graphiti MCP server for knowledge graph
@@ -35,7 +36,7 @@ from pathlib import Path
 
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
-from agno.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
 from agno.os import AgentOS
@@ -50,17 +51,18 @@ from agno.vectordb.lancedb import LanceDb, SearchType
 db = SqliteDb(db_file="nexus.db")
 
 # ---------------------------------------------------------------------------
-# Knowledge Base (local, no external APIs)
+# Knowledge Base (LanceDB local + Voyage AI embeddings)
 # ---------------------------------------------------------------------------
-# Uses LanceDB (serverless, like SQLite) + SentenceTransformer (runs on CPU).
+# Uses LanceDB (serverless, like SQLite) + Voyage AI embeddings (API).
+# Set VOYAGE_API_KEY env var (or add to ~/.zshrc).
 # Drop files into the knowledge/ folder and they are indexed on startup.
 
 KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
 KNOWLEDGE_DIR.mkdir(exist_ok=True)
 
-embedder = SentenceTransformerEmbedder(
-    id="sentence-transformers/all-MiniLM-L6-v2",
-    dimensions=384,
+embedder = VoyageAIEmbedder(
+    id="voyage-3-lite",
+    dimensions=512,
 )
 
 knowledge_base = Knowledge(

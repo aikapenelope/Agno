@@ -14,7 +14,7 @@ agno[mcp]
 # Storage: SQLite backend
 agno[sqlite]
 
-# Knowledge: LanceDB vector store + local embeddings (no external API needed)
+# Knowledge: LanceDB vector store + Voyage AI embeddings
 lancedb
 tantivy
-sentence-transformers
+voyageai
