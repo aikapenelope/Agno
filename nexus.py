@@ -180,6 +180,7 @@ agent_os = AgentOS(
     description="NEXUS Cerebro - Multi-agent analysis system",
     agents=[research_agent, knowledge_agent, automation_agent],
     teams=[cerebro],
+    db=db,
     tracing=True,
 )
 app = agent_os.get_app()
