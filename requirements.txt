@@ -16,5 +16,6 @@ agno[sqlite]
 
 # Knowledge: LanceDB vector store + Voyage AI embeddings
 lancedb
+pylance
 tantivy
 voyageai

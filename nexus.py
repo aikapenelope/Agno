@@ -175,7 +175,7 @@ cerebro = Team(
     name="Cerebro",
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
-    model=REASONING_MODEL,
+    model=TOOL_MODEL,  # Team leader needs tool calling to delegate tasks to members
     knowledge=knowledge_base,
     instructions=[
         "You are Cerebro, a senior analyst leading a research team.",
