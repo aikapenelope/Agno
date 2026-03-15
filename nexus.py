@@ -4,41 +4,77 @@ NEXUS Cerebro - Multi-Agent Analysis System
 
 A multi-agent analysis system powered by Agno and Groq.
 Cerebro orchestrates specialized agents to decompose complex tasks,
-research the web, query a knowledge graph, and execute automations.
+research the web, query a knowledge base, and execute automations.
 
 Based on official Agno cookbook patterns:
 - cookbook/05_agent_os/demo.py (AgentOS setup)
 - cookbook/90_models/groq/agent_team.py (Groq + Team)
-- cookbook/91_tools/mcp/graphiti.py (MCP integration)
-- cookbook/00_quickstart/multi_agent_team.py (Team patterns)
+- cookbook/03_teams/05_knowledge/01_team_with_knowledge.py (Knowledge)
 
 Prerequisites:
     pip install -r requirements.txt
 
-    Set environment variable:
+    Set environment variables (or add to ~/.zshrc for persistence):
         export GROQ_API_KEY="your-groq-api-key"
+        export VOYAGE_API_KEY="your-voyage-api-key"
 
     Optional MCP servers (connect when ready):
-        - Graphiti MCP server for knowledge graph
         - n8n MCP server for workflow automation
+
+    Knowledge base:
+        Drop PDF, TXT, MD, CSV, or JSON files into the knowledge/ folder.
+        They are indexed automatically on startup.
 
 Usage:
     python nexus.py
     Then connect AgentOS UI at https://os.agno.com -> Add new OS -> Local
 """
 
+from pathlib import Path
+
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
+from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
+from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
 from agno.os import AgentOS
 from agno.team import Team
 from agno.tools.websearch import WebSearchTools
+from agno.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
 
 db = SqliteDb(db_file="nexus.db")
+
+# ---------------------------------------------------------------------------
+# Knowledge Base (LanceDB local + Voyage AI embeddings)
+# ---------------------------------------------------------------------------
+# LanceDB stores vectors locally (like SQLite). Voyage AI generates embeddings
+# via API so your Mac CPU stays free. Drop files into knowledge/ and restart.
+
+KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
+KNOWLEDGE_DIR.mkdir(exist_ok=True)
+
+embedder = VoyageAIEmbedder(
+    id="voyage-3-lite",
+    dimensions=512,
+)
+
+knowledge_base = Knowledge(
+    vector_db=LanceDb(
+        uri=str(Path(__file__).parent / "lancedb"),
+        table_name="nexus_knowledge",
+        search_type=SearchType.hybrid,
+        embedder=embedder,
+    ),
+)
+
+# Index all supported files in the knowledge/ folder on startup.
+for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
+    if file_path.suffix.lower() in {".pdf", ".txt", ".md", ".csv", ".json"}:
+        knowledge_base.insert(path=file_path, skip_if_exists=True)
 
 # ---------------------------------------------------------------------------
 # Model Configuration
@@ -82,20 +118,20 @@ research_agent = Agent(
 # ---------------------------------------------------------------------------
 # Knowledge Agent
 # ---------------------------------------------------------------------------
-# MCP URL placeholder: update when Graphiti MCP server is ready.
-# Example: MCPTools(url="http://localhost:8000/sse", transport="sse")
 
 knowledge_agent = Agent(
     name="Knowledge Agent",
-    role="Query internal knowledge and provide context from the knowledge graph",
+    role="Query internal knowledge base and provide context",
     model=REASONING_MODEL,
-    # tools=[MCPTools(url="http://localhost:8000/sse", transport="sse")],
+    knowledge=knowledge_base,
+    search_knowledge=True,
     instructions=[
         "You are a knowledge specialist.",
+        "Search the knowledge base for relevant information before answering.",
         "Provide context from internal knowledge and past analyses.",
         "Cross-reference information across different domains.",
         "Cite specific facts and relationships.",
-        "When the knowledge graph is not connected, work from conversation context.",
+        "When no relevant knowledge is found, work from conversation context.",
     ],
     db=db,
     add_history_to_context=True,
@@ -140,6 +176,7 @@ cerebro = Team(
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
     model=REASONING_MODEL,
+    knowledge=knowledge_base,
     instructions=[
         "You are Cerebro, a senior analyst leading a research team.",
         "",
@@ -147,7 +184,7 @@ cerebro = Team(
         "1. Analyze the request and decompose it into subtasks",
         "2. Delegate to the right specialists:",
         "   - Research Agent: current web data, market info, news, competitors",
-        "   - Knowledge Agent: internal context, past decisions, historical data",
+        "   - Knowledge Agent: internal context, documents, historical data",
         "   - Automation Agent: only when actions need to be executed",
         "3. Synthesize all findings into a structured report",
         "",
@@ -180,6 +217,7 @@ agent_os = AgentOS(
     description="NEXUS Cerebro - Multi-agent analysis system",
     agents=[research_agent, knowledge_agent, automation_agent],
     teams=[cerebro],
+    knowledge=[knowledge_base],
     db=db,
     tracing=True,
 )

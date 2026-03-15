@@ -25,6 +25,7 @@ venv/
 nexus.db
 tmp/
 *.db
+lancedb/
 
 # OS
 .DS_Store
