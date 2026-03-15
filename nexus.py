@@ -10,35 +10,72 @@ Based on official Agno cookbook patterns:
 - cookbook/05_agent_os/demo.py (AgentOS setup)
 - cookbook/90_models/groq/agent_team.py (Groq + Team)
 - cookbook/91_tools/mcp/graphiti.py (MCP integration)
-- cookbook/00_quickstart/multi_agent_team.py (Team patterns)
+- cookbook/03_teams/05_knowledge/01_team_with_knowledge.py (Knowledge)
 
 Prerequisites:
     pip install -r requirements.txt
 
-    Set environment variable:
+    Set environment variable (or add to ~/.zshrc for persistence):
         export GROQ_API_KEY="your-groq-api-key"
 
     Optional MCP servers (connect when ready):
         - Graphiti MCP server for knowledge graph
         - n8n MCP server for workflow automation
 
+    Knowledge base:
+        Drop PDF, TXT, or MD files into the knowledge/ folder.
+        They are indexed automatically on startup.
+
 Usage:
     python nexus.py
     Then connect AgentOS UI at https://os.agno.com -> Add new OS -> Local
 """
 
+from pathlib import Path
+
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
+from agno.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
 from agno.os import AgentOS
 from agno.team import Team
 from agno.tools.websearch import WebSearchTools
+from agno.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
 
 db = SqliteDb(db_file="nexus.db")
+
+# ---------------------------------------------------------------------------
+# Knowledge Base (local, no external APIs)
+# ---------------------------------------------------------------------------
+# Uses LanceDB (serverless, like SQLite) + SentenceTransformer (runs on CPU).
+# Drop files into the knowledge/ folder and they are indexed on startup.
+
+KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
+KNOWLEDGE_DIR.mkdir(exist_ok=True)
+
+embedder = SentenceTransformerEmbedder(
+    id="sentence-transformers/all-MiniLM-L6-v2",
+    dimensions=384,
+)
+
+knowledge_base = Knowledge(
+    vector_db=LanceDb(
+        uri=str(Path(__file__).parent / "lancedb"),
+        table_name="nexus_knowledge",
+        search_type=SearchType.hybrid,
+        embedder=embedder,
+    ),
+)
+
+# Index all files in the knowledge/ folder on startup.
+for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
+    if file_path.suffix.lower() in {".pdf", ".txt", ".md", ".csv", ".json"}:
+        knowledge_base.insert(path=file_path, skip_if_exists=True)
 
 # ---------------------------------------------------------------------------
 # Model Configuration
@@ -89,13 +126,16 @@ knowledge_agent = Agent(
     name="Knowledge Agent",
     role="Query internal knowledge and provide context from the knowledge graph",
     model=REASONING_MODEL,
+    knowledge=knowledge_base,
+    search_knowledge=True,
     # tools=[MCPTools(url="http://localhost:8000/sse", transport="sse")],
     instructions=[
         "You are a knowledge specialist.",
+        "Search the knowledge base for relevant information before answering.",
         "Provide context from internal knowledge and past analyses.",
         "Cross-reference information across different domains.",
         "Cite specific facts and relationships.",
-        "When the knowledge graph is not connected, work from conversation context.",
+        "When no relevant knowledge is found, work from conversation context.",
     ],
     db=db,
     add_history_to_context=True,
@@ -140,6 +180,7 @@ cerebro = Team(
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
     model=REASONING_MODEL,
+    knowledge=knowledge_base,
     instructions=[
         "You are Cerebro, a senior analyst leading a research team.",
         "",
@@ -180,6 +221,7 @@ agent_os = AgentOS(
     description="NEXUS Cerebro - Multi-agent analysis system",
     agents=[research_agent, knowledge_agent, automation_agent],
     teams=[cerebro],
+    knowledge=[knowledge_base],
     db=db,
     tracing=True,
 )
