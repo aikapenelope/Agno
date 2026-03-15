@@ -63,9 +63,10 @@ research_agent = Agent(
     role="Search the web for current information and data",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
+    retries=2,  # Retry on Groq tool-call validation errors
     instructions=[
         "You are a research specialist.",
-        "Search the web for current, accurate information.",
+        "Use the web_search tool to find current, accurate information.",
         "Always include sources with URLs and dates.",
         "Present data in structured formats when possible.",
         "Be thorough but concise.",
