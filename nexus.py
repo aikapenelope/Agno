@@ -111,7 +111,6 @@ research_agent = Agent(
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
-    update_memory_on_run=True,
     markdown=True,
 )
 
@@ -163,7 +162,6 @@ automation_agent = Agent(
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
-    update_memory_on_run=True,
     markdown=True,
 )
 
@@ -199,7 +197,6 @@ cerebro = Team(
         "Be decisive and analytical. Acknowledge uncertainty when data is limited.",
     ],
     db=db,
-    update_memory_on_run=True,
     enable_session_summaries=True,
     add_history_to_context=True,
     num_history_runs=5,
