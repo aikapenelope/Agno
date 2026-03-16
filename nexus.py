@@ -206,7 +206,7 @@ if os.getenv("N8N_API_KEY"):
 if os.getenv("TWENTY_API_KEY"):
     _automation_tools.append(
         MCPTools(
-            command="node ~/twenty-crm-mcp-server/index.js",
+            command=f"node {Path.home()}/twenty-crm-mcp-server/index.js",
             env={
                 "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
                 "TWENTY_BASE_URL": os.getenv("TWENTY_BASE_URL", "http://localhost:3000"),
