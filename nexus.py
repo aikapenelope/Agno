@@ -2,7 +2,7 @@
 NEXUS Cerebro - Multi-Agent Analysis System
 ============================================
 
-A multi-agent analysis system powered by Agno and Groq.
+A multi-agent analysis system powered by Agno, Groq, and MiniMax.
 Cerebro orchestrates specialized agents to decompose complex tasks,
 research the web, query a knowledge base, and execute automations.
 
@@ -17,6 +17,7 @@ Prerequisites:
     Set environment variables (or add to ~/.zshrc for persistence):
         export GROQ_API_KEY="your-groq-api-key"
         export VOYAGE_API_KEY="your-voyage-api-key"
+        export MINIMAX_API_KEY="your-minimax-api-key"
 
     Optional MCP servers (connect when ready):
         - n8n MCP server for workflow automation
@@ -30,6 +31,7 @@ Usage:
     Then connect AgentOS UI at https://os.agno.com -> Add new OS -> Local
 """
 
+import os
 from pathlib import Path
 
 from agno.agent import Agent
@@ -37,6 +39,7 @@ from agno.db.sqlite import SqliteDb
 from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
+from agno.models.openai import OpenAIChat
 from agno.os import AgentOS
 from agno.registry import Registry
 from agno.team import Team
@@ -81,6 +84,7 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # Model Configuration
 # ---------------------------------------------------------------------------
 
+# --- Groq Models ---
 # Reasoning model: GPT-OSS 120B - best reasoning on Groq, cheaper than Llama 3.3.
 # Has tool calling issues, so only used where tools are not needed.
 REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
@@ -90,6 +94,21 @@ TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
 
 # Fast model: Llama 3.1 8B - ultra fast and cheap for simple tasks.
 FAST_MODEL = Groq(id="llama-3.1-8b-instant")
+
+# --- MiniMax Models (OpenAI-compatible API) ---
+# M2.5: 204K context, advanced reasoning + tool calling, ~60 tps.
+MINIMAX_MODEL = OpenAIChat(
+    id="MiniMax-M2.5",
+    api_key=os.getenv("MINIMAX_API_KEY"),
+    base_url="https://api.minimax.io/v1",
+)
+
+# M2.5 Highspeed: same performance, ~100 tps. Best for fast responses.
+MINIMAX_FAST_MODEL = OpenAIChat(
+    id="MiniMax-M2.5-highspeed",
+    api_key=os.getenv("MINIMAX_API_KEY"),
+    base_url="https://api.minimax.io/v1",
+)
 
 # ---------------------------------------------------------------------------
 # Research Agent
@@ -213,7 +232,13 @@ cerebro = Team(
 registry = Registry(
     name="NEXUS Registry",
     tools=[WebSearchTools(fixed_max_results=5)],
-    models=[REASONING_MODEL, TOOL_MODEL, FAST_MODEL],
+    models=[
+        REASONING_MODEL,
+        TOOL_MODEL,
+        FAST_MODEL,
+        MINIMAX_MODEL,
+        MINIMAX_FAST_MODEL,
+    ],
     dbs=[db],
     vector_dbs=[vector_db],
 )
