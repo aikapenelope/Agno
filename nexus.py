@@ -207,7 +207,7 @@ if os.getenv("N8N_API_KEY"):
                 "activate_workflow",
                 "deactivate_workflow",
                 "execute_workflow",
-                "get_executions",
+                "list_executions",
                 "get_execution",
             ],
             timeout_seconds=30,
