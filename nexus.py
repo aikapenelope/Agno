@@ -18,9 +18,13 @@ Prerequisites:
         export GROQ_API_KEY="your-groq-api-key"
         export VOYAGE_API_KEY="your-voyage-api-key"
         export MINIMAX_API_KEY="your-minimax-api-key"
+        export N8N_API_KEY="your-n8n-api-key"
+        export TWENTY_API_KEY="your-twenty-api-key"
+        export TWENTY_BASE_URL="http://localhost:3000"
 
-    Optional MCP servers (connect when ready):
-        - n8n MCP server for workflow automation
+    MCP servers (requires Docker running with n8n and Twenty):
+        - n8n workflow builder: creates and manages n8n workflows
+        - Twenty CRM: manages contacts, companies, tasks, notes
 
     Knowledge base:
         Drop PDF, TXT, MD, CSV, or JSON files into the knowledge/ folder.
@@ -43,6 +47,7 @@ from agno.models.openai import OpenAIChat
 from agno.os import AgentOS
 from agno.registry import Registry
 from agno.team import Team
+from agno.tools.mcp import MCPTools
 from agno.tools.arxiv import ArxivTools
 from agno.tools.calculator import CalculatorTools
 from agno.tools.csv_toolkit import CsvTools
@@ -179,22 +184,62 @@ knowledge_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
+# MCP Servers (conditionally loaded based on env vars)
+# ---------------------------------------------------------------------------
+
+_automation_tools: list = []
+
+# n8n workflow builder: create, list, execute, manage n8n workflows.
+if os.getenv("N8N_API_KEY"):
+    _automation_tools.append(
+        MCPTools(
+            command="npx -y @makafeli/n8n-workflow-builder",
+            env={
+                "N8N_HOST": "http://localhost:5678",
+                "N8N_API_KEY": os.getenv("N8N_API_KEY", ""),
+            },
+            timeout_seconds=30,
+        )
+    )
+
+# Twenty CRM: manage contacts, companies, tasks, notes.
+if os.getenv("TWENTY_API_KEY"):
+    _automation_tools.append(
+        MCPTools(
+            command="node ~/twenty-crm-mcp-server/index.js",
+            env={
+                "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
+                "TWENTY_BASE_URL": os.getenv("TWENTY_BASE_URL", "http://localhost:3000"),
+            },
+            timeout_seconds=30,
+        )
+    )
+
+# ---------------------------------------------------------------------------
 # Automation Agent
 # ---------------------------------------------------------------------------
-# MCP URL placeholder: update when n8n MCP server is ready.
-# Example: MCPTools(url="http://localhost:5678/mcp", transport="sse")
 
 automation_agent = Agent(
     name="Automation Agent",
-    role="Execute workflows and automations",
-    model=FAST_MODEL,
-    # tools=[MCPTools(url="http://localhost:5678/mcp", transport="sse")],
+    role="Execute workflows, manage CRM, and run automations",
+    model=TOOL_MODEL,  # Needs reliable tool calling for MCP
+    tools=_automation_tools or None,  # type: ignore[arg-type]
     instructions=[
-        "You are an automation specialist.",
-        "Execute workflows when actions are needed.",
-        "Report the results of executed automations clearly.",
-        "Confirm before executing any destructive or irreversible actions.",
-        "When n8n is not connected, describe what automation you would execute.",
+        "You are an automation specialist with access to n8n and Twenty CRM.",
+        "",
+        "## n8n (workflow automation)",
+        "- List, create, execute, activate, and deactivate n8n workflows.",
+        "- When asked to automate something, check if a workflow already exists first.",
+        "",
+        "## Twenty CRM",
+        "- Manage contacts (people), companies, tasks, and notes.",
+        "- Search across CRM records when asked about clients or leads.",
+        "- Create new records when requested.",
+        "",
+        "## General",
+        "- Report results of executed automations clearly.",
+        "- Confirm before executing any destructive or irreversible actions.",
+        "- If a service is not connected, explain what you would do if it were.",
     ],
     db=db,
     add_history_to_context=True,
@@ -221,7 +266,7 @@ cerebro = Team(
         "2. Delegate to the right specialists:",
         "   - Research Agent: current web data, market info, news, competitors",
         "   - Knowledge Agent: internal context, documents, historical data",
-        "   - Automation Agent: only when actions need to be executed",
+        "   - Automation Agent: n8n workflows, Twenty CRM (contacts, companies, tasks)",
         "3. Synthesize all findings into a structured report",
         "",
         "## Output Format",
@@ -315,4 +360,5 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent_os.serve(app="nexus:app", port=7777, reload=True)
+    # reload=False required when using MCP tools (lifespan conflicts)
+    agent_os.serve(app="nexus:app", port=7777, reload=False)
