@@ -247,31 +247,42 @@ cerebro = Team(
 # Registry (exposes components to AgentOS Studio UI)
 # ---------------------------------------------------------------------------
 
+# Build tool list: always include free tools, conditionally add paid ones.
+_registry_tools: list = [
+    # --- Free (no API key needed) ---
+    ArxivTools(),
+    CalculatorTools(),
+    CsvTools(),
+    DuckDuckGoTools(),
+    FileTools(),
+    HackerNewsTools(),
+    Newspaper4kTools(),
+    PythonTools(),
+    WebSearchTools(fixed_max_results=5),
+    WikipediaTools(),
+    YFinanceTools(),
+    YouTubeTools(),
+]
+
+# --- Require API keys: only register if the key is set ---
+if os.getenv("REDDIT_CLIENT_ID"):
+    _registry_tools.append(RedditTools())
+if os.getenv("EMAIL_SENDER") and os.getenv("EMAIL_PASSKEY"):
+    _registry_tools.append(EmailTools())
+if os.getenv("EXA_API_KEY"):
+    _registry_tools.append(ExaTools())
+if os.getenv("GITHUB_TOKEN"):
+    _registry_tools.append(GithubTools())
+if os.getenv("SLACK_BOT_TOKEN"):
+    _registry_tools.append(SlackTools())
+if os.getenv("TAVILY_API_KEY"):
+    _registry_tools.append(TavilyTools())
+if os.getenv("TODOIST_API_KEY"):
+    _registry_tools.append(TodoistTools())
+
 registry = Registry(
     name="NEXUS Registry",
-    tools=[
-        # --- Free (no API key needed) ---
-        ArxivTools(),
-        CalculatorTools(),
-        CsvTools(),
-        DuckDuckGoTools(),
-        FileTools(),
-        HackerNewsTools(),
-        Newspaper4kTools(),
-        PythonTools(),
-        RedditTools(),
-        WebSearchTools(fixed_max_results=5),
-        WikipediaTools(),
-        YFinanceTools(),
-        YouTubeTools(),
-        # --- Require API keys (set env vars to activate) ---
-        EmailTools(),                   # EMAIL_SENDER, EMAIL_PASSKEY
-        ExaTools(),                     # EXA_API_KEY
-        GithubTools(),                  # GITHUB_TOKEN
-        SlackTools(),                   # SLACK_BOT_TOKEN
-        TavilyTools(),                  # TAVILY_API_KEY
-        TodoistTools(),                 # TODOIST_API_KEY
-    ],
+    tools=_registry_tools,
     models=[
         REASONING_MODEL,
         TOOL_MODEL,
