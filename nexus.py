@@ -43,7 +43,25 @@ from agno.models.openai import OpenAIChat
 from agno.os import AgentOS
 from agno.registry import Registry
 from agno.team import Team
+from agno.tools.arxiv import ArxivTools
+from agno.tools.calculator import CalculatorTools
+from agno.tools.csv_toolkit import CsvTools
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.email import EmailTools
+from agno.tools.exa import ExaTools
+from agno.tools.file import FileTools
+from agno.tools.github import GithubTools
+from agno.tools.hackernews import HackerNewsTools
+from agno.tools.newspaper4k import Newspaper4kTools
+from agno.tools.python import PythonTools
+from agno.tools.reddit import RedditTools
+from agno.tools.slack import SlackTools
+from agno.tools.tavily import TavilyTools
+from agno.tools.todoist import TodoistTools
 from agno.tools.websearch import WebSearchTools
+from agno.tools.wikipedia import WikipediaTools
+from agno.tools.yfinance import YFinanceTools
+from agno.tools.youtube import YouTubeTools
 from agno.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
@@ -231,7 +249,29 @@ cerebro = Team(
 
 registry = Registry(
     name="NEXUS Registry",
-    tools=[WebSearchTools(fixed_max_results=5)],
+    tools=[
+        # --- Free (no API key needed) ---
+        ArxivTools(),
+        CalculatorTools(),
+        CsvTools(),
+        DuckDuckGoTools(),
+        FileTools(),
+        HackerNewsTools(),
+        Newspaper4kTools(),
+        PythonTools(),
+        RedditTools(),
+        WebSearchTools(fixed_max_results=5),
+        WikipediaTools(),
+        YFinanceTools(),
+        YouTubeTools(),
+        # --- Require API keys (set env vars to activate) ---
+        EmailTools(),                   # EMAIL_SENDER, EMAIL_PASSKEY
+        ExaTools(),                     # EXA_API_KEY
+        GithubTools(),                  # GITHUB_TOKEN
+        SlackTools(),                   # SLACK_BOT_TOKEN
+        TavilyTools(),                  # TAVILY_API_KEY
+        TodoistTools(),                 # TODOIST_API_KEY
+    ],
     models=[
         REASONING_MODEL,
         TOOL_MODEL,
