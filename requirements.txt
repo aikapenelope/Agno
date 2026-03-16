@@ -13,9 +13,11 @@ agno[arxiv]
 agno[ddg]
 agno[newspaper]
 agno[youtube]
-pypdf          # required by ArxivTools to read downloaded PDFs
-praw           # required by RedditTools
-yfinance       # required by YFinanceTools
+pypdf              # required by ArxivTools to read downloaded PDFs
+praw               # required by RedditTools
+yfinance           # required by YFinanceTools
+wikipedia          # required by WikipediaTools
+newspaper4k[nlp]   # full NLP features for Newspaper4kTools
 
 # Tools: Require API keys (install now, configure keys later)
 agno[exa]
