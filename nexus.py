@@ -38,6 +38,7 @@ from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
 from agno.os import AgentOS
+from agno.registry import Registry
 from agno.team import Team
 from agno.tools.websearch import WebSearchTools
 from agno.vectordb.lancedb import LanceDb, SearchType
@@ -62,14 +63,14 @@ embedder = VoyageAIEmbedder(
     dimensions=512,
 )
 
-knowledge_base = Knowledge(
-    vector_db=LanceDb(
-        uri=str(Path(__file__).parent / "lancedb"),
-        table_name="nexus_knowledge",
-        search_type=SearchType.hybrid,
-        embedder=embedder,
-    ),
+vector_db = LanceDb(
+    uri=str(Path(__file__).parent / "lancedb"),
+    table_name="nexus_knowledge",
+    search_type=SearchType.hybrid,
+    embedder=embedder,
 )
+
+knowledge_base = Knowledge(vector_db=vector_db)
 
 # Index all supported files in the knowledge/ folder on startup.
 for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
@@ -206,6 +207,18 @@ cerebro = Team(
 )
 
 # ---------------------------------------------------------------------------
+# Registry (exposes components to AgentOS Studio UI)
+# ---------------------------------------------------------------------------
+
+registry = Registry(
+    name="NEXUS Registry",
+    tools=[WebSearchTools(fixed_max_results=5)],
+    models=[REASONING_MODEL, TOOL_MODEL, FAST_MODEL],
+    dbs=[db],
+    vector_dbs=[vector_db],
+)
+
+# ---------------------------------------------------------------------------
 # AgentOS
 # ---------------------------------------------------------------------------
 
@@ -215,6 +228,7 @@ agent_os = AgentOS(
     agents=[research_agent, knowledge_agent, automation_agent],
     teams=[cerebro],
     knowledge=[knowledge_base],
+    registry=registry,
     db=db,
     tracing=True,
 )
