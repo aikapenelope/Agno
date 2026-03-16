@@ -4,8 +4,9 @@
 # Core: Agno with AgentOS runtime (includes FastAPI, uvicorn, sqlalchemy, tracing)
 agno[os]
 
-# Model: Groq provider
+# Models: Groq + MiniMax (via OpenAI-compatible API)
 agno[groq]
+agno[openai]
 
 # Tools: Web search (DuckDuckGo) and MCP
 agno[ddg]
