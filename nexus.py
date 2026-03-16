@@ -226,6 +226,8 @@ automation_agent = Agent(
     tools=_automation_tools or None,  # type: ignore[arg-type]
     instructions=[
         "You are an automation specialist with access to n8n and Twenty CRM.",
+        "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
+        "When asked to do something, DO IT using your tools. Do not describe steps.",
         "",
         "## n8n (workflow automation)",
         "- List, create, execute, activate, and deactivate n8n workflows.",
@@ -236,10 +238,10 @@ automation_agent = Agent(
         "- Search across CRM records when asked about clients or leads.",
         "- Create new records when requested.",
         "",
-        "## General",
-        "- Report results of executed automations clearly.",
-        "- Confirm before executing any destructive or irreversible actions.",
-        "- If a service is not connected, explain what you would do if it were.",
+        "## Rules",
+        "- ALWAYS call tools first, then report results.",
+        "- Confirm before executing destructive or irreversible actions.",
+        "- If a tool call fails, report the error. Do not explain manual steps.",
     ],
     db=db,
     add_history_to_context=True,
