@@ -8,8 +8,20 @@ agno[os]
 agno[groq]
 agno[openai]
 
-# Tools: Web search (DuckDuckGo) and MCP
+# Tools: Free (no API key)
+agno[arxiv]
 agno[ddg]
+agno[newspaper]
+agno[youtube]
+
+# Tools: Require API keys (install now, configure keys later)
+agno[exa]
+agno[github]
+agno[slack]
+agno[tavily]
+agno[todoist]
+
+# Tools: MCP protocol
 agno[mcp]
 
 # Storage: SQLite backend
