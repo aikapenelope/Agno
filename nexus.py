@@ -38,14 +38,18 @@ Usage:
 import os
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
+from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
 from agno.models.openai import OpenAIChat
 from agno.os import AgentOS
 from agno.registry import Registry
+from agno.skills import LocalSkills, Skills
 from agno.team import Team
 from agno.tools.mcp import MCPTools
 from agno.tools.arxiv import ArxivTools
@@ -68,6 +72,45 @@ from agno.tools.wikipedia import WikipediaTools
 from agno.tools.yfinance import YFinanceTools
 from agno.tools.youtube import YouTubeTools
 from agno.vectordb.lancedb import LanceDb, SearchType
+from agno.workflow.step import Step
+from agno.workflow.workflow import Workflow
+
+# ---------------------------------------------------------------------------
+# Structured Output Models (Pydantic)
+# ---------------------------------------------------------------------------
+# These models enforce structured responses when agents need to produce
+# machine-readable output (e.g., for CRM integration or workflow steps).
+
+
+class ResearchReport(BaseModel):
+    """Structured research output for consistent reporting."""
+
+    executive_summary: str = Field(description="2-3 sentence overview of findings")
+    key_findings: list[str] = Field(description="List of key findings with sources")
+    recommendations: list[str] = Field(description="Actionable next steps")
+    sources: list[str] = Field(description="URLs and references used")
+    confidence: str = Field(description="high, medium, or low confidence level")
+
+
+class LeadReport(BaseModel):
+    """Structured lead/client analysis for CRM integration."""
+
+    company_name: str = Field(description="Company or person name")
+    industry: str = Field(description="Industry or sector")
+    score: int = Field(ge=1, le=10, description="Lead quality score 1-10")
+    pain_points: list[str] = Field(description="Identified pain points or needs")
+    next_steps: list[str] = Field(description="Recommended follow-up actions")
+    notes: str = Field(description="Additional context or observations")
+
+
+class TaskSummary(BaseModel):
+    """Structured task output for automation tracking."""
+
+    action: str = Field(description="What was done")
+    status: str = Field(description="success, partial, or failed")
+    details: str = Field(description="Details of the action taken")
+    follow_up: list[str] = Field(default_factory=list, description="Follow-up items")
+
 
 # ---------------------------------------------------------------------------
 # Storage
@@ -134,6 +177,28 @@ MINIMAX_FAST_MODEL = OpenAIChat(
 )
 
 # ---------------------------------------------------------------------------
+# Guardrails (applied to all agents and teams)
+# ---------------------------------------------------------------------------
+# PII detection blocks SSNs, credit cards, emails, phone numbers in input.
+# Prompt injection blocks jailbreak attempts and instruction overrides.
+
+_guardrails = [
+    PIIDetectionGuardrail(),
+    PromptInjectionGuardrail(),
+]
+
+# ---------------------------------------------------------------------------
+# Skills (domain knowledge loaded on demand)
+# ---------------------------------------------------------------------------
+# Skills are lazy-loaded: agents see summaries, then load full instructions
+# only when relevant. This saves tokens and keeps context lean.
+
+SKILLS_DIR = Path(__file__).parent / "skills"
+_skills = (
+    Skills(loaders=[LocalSkills(str(SKILLS_DIR))]) if SKILLS_DIR.exists() else None
+)
+
+# ---------------------------------------------------------------------------
 # Research Agent
 # ---------------------------------------------------------------------------
 
@@ -143,6 +208,7 @@ research_agent = Agent(
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
     retries=2,  # Retry on Groq tool-call validation errors
+    pre_hooks=_guardrails,
     instructions=[
         "You are a research specialist.",
         "Use the web_search tool to find current, accurate information.",
@@ -167,6 +233,11 @@ knowledge_agent = Agent(
     model=REASONING_MODEL,
     knowledge=knowledge_base,
     search_knowledge=True,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    reasoning=True,
+    reasoning_min_steps=2,
+    reasoning_max_steps=5,
     instructions=[
         "You are a knowledge specialist.",
         "Search the knowledge base for relevant information before answering.",
@@ -222,7 +293,9 @@ if os.getenv("TWENTY_API_KEY"):
             command=f"node {Path.home()}/twenty-crm-mcp-server/index.js",
             env={
                 "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
-                "TWENTY_BASE_URL": os.getenv("TWENTY_BASE_URL", "http://localhost:3000"),
+                "TWENTY_BASE_URL": os.getenv(
+                    "TWENTY_BASE_URL", "http://localhost:3000"
+                ),
             },
             include_tools=[
                 "create_person",
@@ -247,6 +320,7 @@ automation_agent = Agent(
     role="Execute workflows, manage CRM, and run automations",
     model=TOOL_MODEL,  # Needs reliable tool calling for MCP
     tools=_automation_tools or None,  # type: ignore[arg-type]
+    pre_hooks=_guardrails,
     instructions=[
         "You are an automation specialist with access to n8n and Twenty CRM.",
         "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
@@ -283,6 +357,7 @@ cerebro = Team(
     members=[research_agent, knowledge_agent, automation_agent],
     model=TOOL_MODEL,  # Team leader needs tool calling to delegate tasks to members
     knowledge=knowledge_base,
+    pre_hooks=_guardrails,
     instructions=[
         "You are Cerebro, a senior analyst leading a research team.",
         "",
@@ -311,6 +386,39 @@ cerebro = Team(
     show_members_responses=True,
     add_datetime_to_context=True,
     markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Workflows (deterministic pipelines)
+# ---------------------------------------------------------------------------
+# Unlike the Cerebro Team (which dynamically decides who to delegate to),
+# workflows run agents in a fixed sequence. Use for repeatable processes.
+
+# Synthesis agent: takes research + knowledge output and produces a structured report.
+_synthesis_agent = Agent(
+    name="Synthesis Agent",
+    model=REASONING_MODEL,
+    output_schema=ResearchReport,
+    use_json_mode=True,  # Groq fallback for structured output
+    instructions=[
+        "You receive research findings and internal knowledge context.",
+        "Synthesize everything into a structured research report.",
+        "Be concise, analytical, and cite sources.",
+    ],
+)
+
+client_research_workflow = Workflow(
+    name="client-research",
+    description="Research a client or topic: web search -> knowledge base -> structured report",
+    db=SqliteDb(
+        session_table="workflow_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        Step(name="Web Research", agent=research_agent),
+        Step(name="Knowledge Lookup", agent=knowledge_agent),
+        Step(name="Synthesis", agent=_synthesis_agent),
+    ],
 )
 
 # ---------------------------------------------------------------------------
@@ -373,10 +481,13 @@ agent_os = AgentOS(
     description="NEXUS Cerebro - Multi-agent analysis system",
     agents=[research_agent, knowledge_agent, automation_agent],
     teams=[cerebro],
+    workflows=[client_research_workflow],
     knowledge=[knowledge_base],
     registry=registry,
     db=db,
     tracing=True,
+    scheduler=True,
+    scheduler_poll_interval=30,  # Check for due schedules every 30 seconds
 )
 app = agent_os.get_app()
 
