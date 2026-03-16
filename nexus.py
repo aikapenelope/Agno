@@ -190,6 +190,7 @@ knowledge_agent = Agent(
 _automation_tools: list = []
 
 # n8n workflow builder: create, list, execute, manage n8n workflows.
+# Limited to core workflow + execution tools to avoid context overflow.
 if os.getenv("N8N_API_KEY"):
     _automation_tools.append(
         MCPTools(
@@ -198,11 +199,23 @@ if os.getenv("N8N_API_KEY"):
                 "N8N_HOST": "http://localhost:5678",
                 "N8N_API_KEY": os.getenv("N8N_API_KEY", ""),
             },
+            include_tools=[
+                "list_workflows",
+                "get_workflow",
+                "create_workflow",
+                "update_workflow",
+                "activate_workflow",
+                "deactivate_workflow",
+                "execute_workflow",
+                "get_executions",
+                "get_execution",
+            ],
             timeout_seconds=30,
         )
     )
 
 # Twenty CRM: manage contacts, companies, tasks, notes.
+# Limited to core CRUD + search to avoid context overflow.
 if os.getenv("TWENTY_API_KEY"):
     _automation_tools.append(
         MCPTools(
@@ -211,6 +224,16 @@ if os.getenv("TWENTY_API_KEY"):
                 "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
                 "TWENTY_BASE_URL": os.getenv("TWENTY_BASE_URL", "http://localhost:3000"),
             },
+            include_tools=[
+                "create_person",
+                "list_people",
+                "create_company",
+                "list_companies",
+                "create_task",
+                "list_tasks",
+                "create_note",
+                "search_records",
+            ],
             timeout_seconds=30,
         )
     )
