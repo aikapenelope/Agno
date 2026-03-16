@@ -215,6 +215,7 @@ if os.getenv("N8N_API_KEY"):
     )
 
 # Twenty CRM: manage contacts, companies, tasks, notes.
+# Limited to core CRUD + search to avoid context overflow.
 if os.getenv("TWENTY_API_KEY"):
     _automation_tools.append(
         MCPTools(
@@ -223,6 +224,16 @@ if os.getenv("TWENTY_API_KEY"):
                 "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
                 "TWENTY_BASE_URL": os.getenv("TWENTY_BASE_URL", "http://localhost:3000"),
             },
+            include_tools=[
+                "create_person",
+                "list_people",
+                "create_company",
+                "list_companies",
+                "create_task",
+                "list_tasks",
+                "create_note",
+                "search_records",
+            ],
             timeout_seconds=30,
         )
     )
