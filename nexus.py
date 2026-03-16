@@ -190,6 +190,7 @@ knowledge_agent = Agent(
 _automation_tools: list = []
 
 # n8n workflow builder: create, list, execute, manage n8n workflows.
+# Limited to core workflow + execution tools to avoid context overflow.
 if os.getenv("N8N_API_KEY"):
     _automation_tools.append(
         MCPTools(
@@ -198,6 +199,17 @@ if os.getenv("N8N_API_KEY"):
                 "N8N_HOST": "http://localhost:5678",
                 "N8N_API_KEY": os.getenv("N8N_API_KEY", ""),
             },
+            include_tools=[
+                "list_workflows",
+                "get_workflow",
+                "create_workflow",
+                "update_workflow",
+                "activate_workflow",
+                "deactivate_workflow",
+                "execute_workflow",
+                "get_executions",
+                "get_execution",
+            ],
             timeout_seconds=30,
         )
     )
