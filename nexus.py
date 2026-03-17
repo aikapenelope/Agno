@@ -151,7 +151,12 @@ vector_db = LanceDb(
     embedder=embedder,
 )
 
-knowledge_base = Knowledge(vector_db=vector_db)
+knowledge_base = Knowledge(
+    name="NEXUS Knowledge",
+    description="Internal documents, research, and reference material",
+    vector_db=vector_db,
+    contents_db=db,
+)
 
 # Index all supported files in the knowledge/ folder on startup.
 for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
