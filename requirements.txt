@@ -26,6 +26,14 @@ agno[slack]
 agno[tavily]
 agno[todoist]
 
+# Tools: Additional integrations (guarded by env vars at runtime)
+tweepy             # required by XTools (X/Twitter)
+firecrawl-py       # required by FirecrawlTools (web scraping)
+spider-client      # required by SpiderTools (web crawling)
+browserbase        # required by BrowserbaseTools (browser automation)
+google-genai       # required by NanoBananaTools (image generation)
+lumaai             # required by LumaLabTools (video generation)
+
 # Tools: MCP protocol
 agno[mcp]
 
