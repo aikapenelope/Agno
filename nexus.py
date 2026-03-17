@@ -53,22 +53,34 @@ from agno.skills import LocalSkills, Skills
 from agno.team import Team
 from agno.tools.mcp import MCPTools
 from agno.tools.arxiv import ArxivTools
+from agno.tools.browserbase import BrowserbaseTools
 from agno.tools.calculator import CalculatorTools
 from agno.tools.csv_toolkit import CsvTools
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.email import EmailTools
 from agno.tools.exa import ExaTools
 from agno.tools.file import FileTools
+from agno.tools.firecrawl import FirecrawlTools
 from agno.tools.github import GithubTools
 from agno.tools.hackernews import HackerNewsTools
+from agno.tools.knowledge import KnowledgeTools
+from agno.tools.lumalab import LumaLabTools
+from agno.tools.nano_banana import NanoBananaTools
 from agno.tools.newspaper4k import Newspaper4kTools
 from agno.tools.python import PythonTools
+from agno.tools.reasoning import ReasoningTools
 from agno.tools.reddit import RedditTools
 from agno.tools.slack import SlackTools
+from agno.tools.spider import SpiderTools
 from agno.tools.tavily import TavilyTools
 from agno.tools.todoist import TodoistTools
+from agno.tools.user_control_flow import UserControlFlowTools
+from agno.tools.webbrowser import WebBrowserTools
 from agno.tools.websearch import WebSearchTools
+from agno.tools.whatsapp import WhatsAppTools
 from agno.tools.wikipedia import WikipediaTools
+from agno.tools.workflow import WorkflowTools
+from agno.tools.x import XTools
 from agno.tools.yfinance import YFinanceTools
 from agno.tools.youtube import YouTubeTools
 from agno.vectordb.lancedb import LanceDb, SearchType
@@ -464,10 +476,16 @@ _registry_tools: list = [
     DuckDuckGoTools(),
     FileTools(),
     HackerNewsTools(),
+    KnowledgeTools(knowledge=knowledge_base),
     Newspaper4kTools(),
     PythonTools(),
+    ReasoningTools(),
+    SpiderTools(),
+    UserControlFlowTools(),
+    WebBrowserTools(),
     WebSearchTools(fixed_max_results=5),
     WikipediaTools(),
+    WorkflowTools(workflow=client_research_workflow),
     YFinanceTools(),
     YouTubeTools(),
 ]
@@ -487,6 +505,18 @@ if os.getenv("TAVILY_API_KEY"):
     _registry_tools.append(TavilyTools())
 if os.getenv("TODOIST_API_KEY"):
     _registry_tools.append(TodoistTools())
+if os.getenv("WHATSAPP_ACCESS_TOKEN"):
+    _registry_tools.append(WhatsAppTools())
+if os.getenv("X_BEARER_TOKEN"):
+    _registry_tools.append(XTools())
+if os.getenv("FIRECRAWL_API_KEY"):
+    _registry_tools.append(FirecrawlTools())
+if os.getenv("BROWSERBASE_API_KEY") and os.getenv("BROWSERBASE_PROJECT_ID"):
+    _registry_tools.append(BrowserbaseTools())
+if os.getenv("GOOGLE_API_KEY"):
+    _registry_tools.append(NanoBananaTools())
+if os.getenv("LUMAAI_API_KEY"):
+    _registry_tools.append(LumaLabTools())
 
 registry = Registry(
     name="NEXUS Registry",
