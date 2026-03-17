@@ -209,6 +209,7 @@ research_agent = Agent(
     tools=[WebSearchTools(fixed_max_results=5)],
     retries=2,  # Retry on Groq tool-call validation errors
     pre_hooks=_guardrails,
+    skills=_skills,
     instructions=[
         "You are a research specialist.",
         "Use the web_search tool to find current, accurate information.",
@@ -217,6 +218,7 @@ research_agent = Agent(
         "Be thorough but concise.",
     ],
     db=db,
+    learning=True,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -247,6 +249,7 @@ knowledge_agent = Agent(
         "When no relevant knowledge is found, work from conversation context.",
     ],
     db=db,
+    learning=True,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -311,6 +314,26 @@ if os.getenv("TWENTY_API_KEY"):
         )
     )
 
+# Obsidian vault: read, search, and manage notes from your Obsidian vault.
+# Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
+# No API key needed -- runs locally via npx.
+_obsidian_vault = os.getenv("OBSIDIAN_VAULT_PATH")
+if _obsidian_vault:
+    _automation_tools.append(
+        MCPTools(
+            command=f"npx -y @bitbonsai/mcpvault {_obsidian_vault}",
+            include_tools=[
+                "read_note",
+                "write_note",
+                "search_notes",
+                "list_directory",
+                "get_frontmatter",
+                "manage_tags",
+            ],
+            timeout_seconds=30,
+        )
+    )
+
 # ---------------------------------------------------------------------------
 # Automation Agent
 # ---------------------------------------------------------------------------
@@ -321,8 +344,9 @@ automation_agent = Agent(
     model=TOOL_MODEL,  # Needs reliable tool calling for MCP
     tools=_automation_tools or None,  # type: ignore[arg-type]
     pre_hooks=_guardrails,
+    skills=_skills,
     instructions=[
-        "You are an automation specialist with access to n8n and Twenty CRM.",
+        "You are an automation specialist with access to n8n, Twenty CRM, and Obsidian.",
         "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
         "When asked to do something, DO IT using your tools. Do not describe steps.",
         "",
@@ -335,12 +359,18 @@ automation_agent = Agent(
         "- Search across CRM records when asked about clients or leads.",
         "- Create new records when requested.",
         "",
+        "## Obsidian (knowledge vault)",
+        "- Read, search, and write notes in the Obsidian vault.",
+        "- Use search_notes to find relevant information across all notes.",
+        "- Create new notes when asked to save or document something.",
+        "",
         "## Rules",
         "- ALWAYS call tools first, then report results.",
         "- Confirm before executing destructive or irreversible actions.",
         "- If a tool call fails, report the error. Do not explain manual steps.",
     ],
     db=db,
+    learning=True,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -366,7 +396,7 @@ cerebro = Team(
         "2. Delegate to the right specialists:",
         "   - Research Agent: current web data, market info, news, competitors",
         "   - Knowledge Agent: internal context, documents, historical data",
-        "   - Automation Agent: n8n workflows, Twenty CRM (contacts, companies, tasks)",
+        "   - Automation Agent: n8n workflows, Twenty CRM, Obsidian notes",
         "3. Synthesize all findings into a structured report",
         "",
         "## Output Format",
