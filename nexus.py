@@ -166,32 +166,39 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # ---------------------------------------------------------------------------
 # Model Configuration
 # ---------------------------------------------------------------------------
+# Primary: MiniMax M2.7 (released 2026-03-18). 200K context, tool calling,
+# reasoning, 97% skill adherence. $0.30/$1.20 per 1M tokens (input/output).
+# Fallback: Groq for ultra-fast/cheap tasks where MiniMax is overkill.
 
-# --- Groq Models ---
-# Reasoning model: GPT-OSS 120B - best reasoning on Groq, cheaper than Llama 3.3.
-# Has tool calling issues, so only used where tools are not needed.
-REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
-
-# Tool model: Llama 3.3 70B - reliable tool calling with fixed_max_results workaround.
-TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
-
-# Fast model: Llama 3.1 8B - ultra fast and cheap for simple tasks.
-FAST_MODEL = Groq(id="llama-3.1-8b-instant")
-
-# --- MiniMax Models (OpenAI-compatible API) ---
-# M2.5: 204K context, advanced reasoning + tool calling, ~60 tps.
-MINIMAX_MODEL = OpenAIChat(
-    id="MiniMax-M2.5",
+# --- MiniMax Models (primary) ---
+# M2.7: flagship model. Tool calling, reasoning, 200K context, ~60 tps.
+# SWE-Pro 56.22%, best open-source on GDPval-AA (ELO 1495).
+TOOL_MODEL = OpenAIChat(
+    id="MiniMax-M2.7",
     api_key=os.getenv("MINIMAX_API_KEY"),
     base_url="https://api.minimax.io/v1",
 )
 
-# M2.5 Highspeed: same performance, ~100 tps. Best for fast responses.
-MINIMAX_FAST_MODEL = OpenAIChat(
-    id="MiniMax-M2.5-highspeed",
+# M2.7 Highspeed: identical results, ~100 tps. Best for streaming/fast UX.
+# $0.60/$2.40 per 1M tokens (2x standard, but 2x faster).
+FAST_MODEL = OpenAIChat(
+    id="MiniMax-M2.7-highspeed",
     api_key=os.getenv("MINIMAX_API_KEY"),
     base_url="https://api.minimax.io/v1",
 )
+
+# Reasoning model: M2.7 standard for deep analysis (same model, used where
+# reasoning=True and no tools are needed). Cheaper than highspeed.
+REASONING_MODEL = OpenAIChat(
+    id="MiniMax-M2.7",
+    api_key=os.getenv("MINIMAX_API_KEY"),
+    base_url="https://api.minimax.io/v1",
+)
+
+# --- Groq Models (fallback / ultra-cheap tasks) ---
+GROQ_TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
+GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
+GROQ_REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
 
 # ---------------------------------------------------------------------------
 # Guardrails (applied to all agents and teams)
@@ -527,11 +534,12 @@ registry = Registry(
     name="NEXUS Registry",
     tools=_registry_tools,
     models=[
-        REASONING_MODEL,
         TOOL_MODEL,
         FAST_MODEL,
-        MINIMAX_MODEL,
-        MINIMAX_FAST_MODEL,
+        REASONING_MODEL,
+        GROQ_TOOL_MODEL,
+        GROQ_FAST_MODEL,
+        GROQ_REASONING_MODEL,
     ],
     dbs=[db],
     vector_dbs=[vector_db],
