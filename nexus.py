@@ -183,30 +183,26 @@ _minimax_role_map = {
     "model": "assistant",
 }
 
-TOOL_MODEL = OpenAIChat(
-    id="MiniMax-M2.7",
-    api_key=os.getenv("MINIMAX_API_KEY"),
-    base_url="https://api.minimax.io/v1",
-    role_map=_minimax_role_map,
-)
+_minimax_kwargs = {
+    "api_key": os.getenv("MINIMAX_API_KEY"),
+    "base_url": "https://api.minimax.io/v1",
+    "role_map": _minimax_role_map,
+    # MiniMax does not support OpenAI's native structured outputs or json_schema
+    # response_format. Disable to avoid "invalid chat setting (2013)" errors
+    # from the learning/memory subsystem.
+    "supports_native_structured_outputs": False,
+    "supports_json_schema_outputs": False,
+}
+
+TOOL_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 
 # M2.7 Highspeed: identical results, ~100 tps. Best for streaming/fast UX.
 # $0.60/$2.40 per 1M tokens (2x standard, but 2x faster).
-FAST_MODEL = OpenAIChat(
-    id="MiniMax-M2.7-highspeed",
-    api_key=os.getenv("MINIMAX_API_KEY"),
-    base_url="https://api.minimax.io/v1",
-    role_map=_minimax_role_map,
-)
+FAST_MODEL = OpenAIChat(id="MiniMax-M2.7-highspeed", **_minimax_kwargs)
 
 # Reasoning model: M2.7 standard for deep analysis (same model, used where
 # reasoning=True and no tools are needed). Cheaper than highspeed.
-REASONING_MODEL = OpenAIChat(
-    id="MiniMax-M2.7",
-    api_key=os.getenv("MINIMAX_API_KEY"),
-    base_url="https://api.minimax.io/v1",
-    role_map=_minimax_role_map,
-)
+REASONING_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 
 # --- Groq Models (fallback / ultra-cheap tasks) ---
 GROQ_TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
