@@ -590,7 +590,7 @@ scriptwriter = Agent(
     name="Scriptwriter",
     role="Write video scripts and storyboards for short-form content",
     model=TOOL_MODEL,
-    tools=[FileTools()],
+    tools=[FileTools(base_dir=Path.home() / "nexus-videos")],
     pre_hooks=_guardrails,
     skills=_scriptwriter_skills,
     instructions=[
