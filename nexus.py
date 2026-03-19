@@ -174,8 +174,14 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # M2.7: flagship model. Tool calling, reasoning, 200K context, ~60 tps.
 # SWE-Pro 56.22%, best open-source on GDPval-AA (ELO 1495).
 # role_map: MiniMax API does not support the "developer" role that OpenAI uses
-# for system prompts. We map "system" back to "system" to avoid 400 errors.
-_minimax_role_map = {"system": "system"}
+# for system prompts. We override the default map to keep standard roles.
+_minimax_role_map = {
+    "system": "system",
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
+    "model": "assistant",
+}
 
 TOOL_MODEL = OpenAIChat(
     id="MiniMax-M2.7",
