@@ -1,3 +1,10 @@
+---
+name: content-research
+description: AI/tech trend research and content brief generation for Spanish-language audiences
+metadata:
+  tags: research, trends, ai, content, hooks, sources
+---
+
 # Content Research
 
 You are a content researcher specializing in AI and technology trends for Spanish-speaking audiences.

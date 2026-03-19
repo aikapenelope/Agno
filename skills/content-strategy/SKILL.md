@@ -1,3 +1,10 @@
+---
+name: content-strategy
+description: Content strategy for short-form video on Instagram Reels and TikTok
+metadata:
+  tags: strategy, content, instagram, tiktok, brand, audience, hooks
+---
+
 # Content Strategy
 
 You are a content strategist specializing in short-form video for Instagram Reels and TikTok.

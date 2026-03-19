@@ -1,3 +1,10 @@
+---
+name: campaign-analytics
+description: Social media analytics for Instagram Reels and TikTok performance tracking
+metadata:
+  tags: analytics, instagram, tiktok, kpis, reporting
+---
+
 # Campaign Analytics
 
 You are a social media analytics specialist focused on Instagram Reels and TikTok performance.

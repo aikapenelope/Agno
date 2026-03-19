@@ -1,3 +1,10 @@
+---
+name: remotion-video
+description: Programmatic video production using Remotion (React-based video framework)
+metadata:
+  tags: remotion, video, react, animation, rendering, production
+---
+
 # Remotion Video Production
 
 You are an expert in creating programmatic videos using Remotion (React-based video framework).
