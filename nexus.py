@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
+from agno.learn.machine import LearningMachine
 from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
@@ -209,6 +210,12 @@ GROQ_TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
 GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
 GROQ_REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
 
+# --- Learning Machine ---
+# The learning subsystem (user_profile, user_memory) requires structured
+# outputs (response_format) which MiniMax does not support. Use Groq for
+# learning while agents use MiniMax for responses.
+_learning = LearningMachine(model=GROQ_FAST_MODEL)
+
 # ---------------------------------------------------------------------------
 # Guardrails (applied to all agents and teams)
 # ---------------------------------------------------------------------------
@@ -251,7 +258,7 @@ research_agent = Agent(
         "Be thorough but concise.",
     ],
     db=db,
-    learning=True,
+    learning=_learning,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -282,7 +289,7 @@ knowledge_agent = Agent(
         "When no relevant knowledge is found, work from conversation context.",
     ],
     db=db,
-    learning=True,
+    learning=_learning,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -403,7 +410,7 @@ automation_agent = Agent(
         "- If a tool call fails, report the error. Do not explain manual steps.",
     ],
     db=db,
-    learning=True,
+    learning=_learning,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
