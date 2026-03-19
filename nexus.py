@@ -51,7 +51,7 @@ from agno.models.openai import OpenAIChat
 from agno.os import AgentOS
 from agno.registry import Registry
 from agno.skills import LocalSkills, Skills
-from agno.team import Team
+from agno.team import Team, TeamMode
 from agno.tools.mcp import MCPTools
 from agno.tools.arxiv import ArxivTools
 from agno.tools.browserbase import BrowserbaseTools
@@ -123,6 +123,61 @@ class TaskSummary(BaseModel):
     status: str = Field(description="success, partial, or failed")
     details: str = Field(description="Details of the action taken")
     follow_up: list[str] = Field(default_factory=list, description="Follow-up items")
+
+
+class ContentBrief(BaseModel):
+    """Research brief for a content piece."""
+
+    topic: str = Field(description="Topic title")
+    pillar: str = Field(
+        description="Content pillar (AI Trends, Tools, Business, Future, BTS)"
+    )
+    timeliness: str = Field(description="Why this topic matters right now")
+    key_facts: list[str] = Field(
+        description="Key facts with specific numbers and sources"
+    )
+    sources: list[str] = Field(description="Source URLs")
+    angle: str = Field(description="Our unique perspective or take")
+    hook_variants: list[str] = Field(
+        description="2-3 hook options for the first 3 seconds"
+    )
+    visual_ideas: list[str] = Field(description="What to show on screen")
+    relevance_score: int = Field(ge=1, le=10, description="Relevance to audience 1-10")
+
+
+class VideoScene(BaseModel):
+    """A single scene in a video storyboard."""
+
+    text: str = Field(description="Narration text for this scene (Spanish)")
+    visual: str = Field(description="Detailed image/visual description for generation")
+    duration_seconds: int = Field(ge=2, le=15, description="Scene duration in seconds")
+    transition: str = Field(
+        default="fade", description="Transition type: fade, slide, cut, zoom"
+    )
+
+
+class VideoStoryboard(BaseModel):
+    """Complete video storyboard ready for Remotion rendering."""
+
+    title: str = Field(description="Video title")
+    hook: str = Field(description="Selected hook (first 3 seconds)")
+    language: str = Field(default="es", description="Content language")
+    total_duration_seconds: int = Field(description="Total video duration")
+    scenes: list[VideoScene] = Field(description="Ordered list of scenes")
+    hashtags: list[str] = Field(description="Platform hashtags")
+    cta: str = Field(description="Call to action at the end")
+    platform: str = Field(
+        default="instagram_reels",
+        description="Target platform: instagram_reels, tiktok",
+    )
+    style: dict = Field(
+        default_factory=lambda: {
+            "font": "Inter",
+            "primary_color": "#1a1a2e",
+            "accent_color": "#e94560",
+        },
+        description="Visual style configuration",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +514,218 @@ cerebro = Team(
 )
 
 # ---------------------------------------------------------------------------
+# Content Team (video production pipeline for Instagram Reels + TikTok)
+# ---------------------------------------------------------------------------
+# Specialized skills per agent role. Each agent only loads the skills it needs
+# to keep context lean and responses focused.
+
+_trend_scout_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "content-research")),
+            LocalSkills(str(SKILLS_DIR / "content-strategy")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_scriptwriter_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "remotion-video")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_analytics_skills = (
+    Skills(loaders=[LocalSkills(str(SKILLS_DIR / "campaign-analytics"))])
+    if SKILLS_DIR.exists()
+    else None
+)
+
+# --- Trend Scout: finds and evaluates trending topics ---
+trend_scout = Agent(
+    name="Trend Scout",
+    role="Research AI/tech trends and produce content briefs",
+    model=TOOL_MODEL,
+    tools=[
+        WebSearchTools(fixed_max_results=5),
+        ArxivTools(),
+        HackerNewsTools(),
+        SpiderTools(),
+        Newspaper4kTools(),
+    ],
+    retries=2,
+    pre_hooks=_guardrails,
+    skills=_trend_scout_skills,
+    instructions=[
+        "You are a trend researcher for a Spanish-language AI content brand.",
+        "Your job is to find the most relevant AI/tech trends RIGHT NOW.",
+        "",
+        "## Process",
+        "1. Search multiple sources: web, Arxiv, HackerNews, tech news",
+        "2. Evaluate each topic for timeliness, impact, and audience fit",
+        "3. Pick the BEST topic and produce a detailed content brief",
+        "4. Generate 2-3 hook variants (first 3 seconds of the video)",
+        "",
+        "## Rules",
+        "- Only topics from the last 48 hours (unless evergreen explainer)",
+        "- Must have at least 2 credible sources",
+        "- Relevance score must be 7+ to proceed",
+        "- Hooks must be in Spanish, punchy, under 10 words",
+        "- Include specific numbers and data points",
+    ],
+    db=db,
+    learning=_learning,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# --- Scriptwriter: turns briefs into video scripts + storyboards ---
+scriptwriter = Agent(
+    name="Scriptwriter",
+    role="Write video scripts and storyboards for short-form content",
+    model=TOOL_MODEL,
+    tools=[FileTools()],
+    pre_hooks=_guardrails,
+    skills=_scriptwriter_skills,
+    instructions=[
+        "You are a professional scriptwriter for short-form video (Reels/TikTok).",
+        "You write in Spanish (Latin America neutral).",
+        "",
+        "## Process",
+        "1. Receive a content brief with topic, angle, and hooks",
+        "2. Select the best hook variant (or improve it)",
+        "3. Write a script: 8-10 sentences, 30-45 seconds when spoken",
+        "4. Break into 5-8 scenes with visual descriptions",
+        "5. Output a complete VideoStoryboard JSON",
+        "",
+        "## Script Rules",
+        "- First 3 seconds: hook (question, bold statement, or surprising fact)",
+        "- Sentences: max 15 words each (for readability as captions)",
+        "- Tone: professional but accessible, like explaining to a smart friend",
+        "- Always end with a clear CTA (follow, comment, share)",
+        "- Never start with greetings ('Hola', 'Bienvenidos')",
+        "",
+        "## Visual Rules",
+        "- Each scene visual must be detailed enough for AI image generation",
+        "- Include colors, composition, style in visual descriptions",
+        "- Alternate between text-heavy and visual-heavy scenes",
+        "- First scene: bold text overlay matching the hook",
+        "- Last scene: CTA with account branding",
+    ],
+    db=db,
+    learning=_learning,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# --- Analytics Agent: tracks performance and generates reports ---
+analytics_agent = Agent(
+    name="Analytics Agent",
+    role="Analyze content performance and generate optimization reports",
+    model=TOOL_MODEL,
+    tools=[
+        WebSearchTools(fixed_max_results=5),
+        CalculatorTools(),
+        FileTools(),
+    ],
+    pre_hooks=_guardrails,
+    skills=_analytics_skills,
+    instructions=[
+        "You are a social media analytics specialist.",
+        "You analyze content performance for Instagram Reels and TikTok.",
+        "",
+        "## Capabilities",
+        "- Generate weekly performance reports",
+        "- Identify top-performing content patterns (hooks, topics, formats)",
+        "- Recommend optimizations based on data",
+        "- Track KPIs by growth stage",
+        "- Compare pillar performance",
+        "",
+        "## Report Format",
+        "Always produce structured reports with:",
+        "- Executive summary (1 paragraph)",
+        "- Numbers at a glance (table)",
+        "- Top 3 and bottom 3 posts with analysis",
+        "- Pillar and hook pattern analysis",
+        "- 3 specific, data-driven recommendations for next week",
+        "",
+        "## Rules",
+        "- Base recommendations on data, not assumptions",
+        "- Engagement rate > raw view count for quality assessment",
+        "- Save rate indicates value, share rate indicates resonance",
+        "- Always compare week-over-week for trends",
+    ],
+    db=db,
+    learning=_learning,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# --- Content Team: coordinates the full pipeline ---
+content_team = Team(
+    name="Content Factory",
+    description="Video content production team for Instagram Reels and TikTok",
+    mode=TeamMode.coordinate,
+    members=[trend_scout, scriptwriter, analytics_agent],
+    model=TOOL_MODEL,
+    pre_hooks=_guardrails,
+    instructions=[
+        "You are the Content Factory director for a Spanish-language AI content brand.",
+        "You coordinate video production for Instagram Reels and TikTok.",
+        "",
+        "## Pipeline",
+        "1. **Research**: Ask Trend Scout to find today's best AI/tech topic",
+        "2. **Script**: Send the brief to Scriptwriter for script + storyboard",
+        "3. **Review**: Present the storyboard for human approval before production",
+        "4. **Analytics**: When asked, have Analytics Agent generate performance reports",
+        "",
+        "## Delegation Rules",
+        "- Trend Scout: anything about finding topics, trends, news",
+        "- Scriptwriter: anything about writing scripts, storyboards, hooks",
+        "- Analytics Agent: anything about metrics, reports, optimization",
+        "",
+        "## Output",
+        "- For content creation: deliver the VideoStoryboard JSON",
+        "- For analytics: deliver the weekly report",
+        "- Always present results clearly for human review",
+        "- Flag any issues (low relevance score, missing sources, etc.)",
+    ],
+    db=db,
+    enable_session_summaries=True,
+    add_history_to_context=True,
+    num_history_runs=5,
+    show_members_responses=True,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Content Production Workflow (deterministic pipeline with QA gates)
+# ---------------------------------------------------------------------------
+
+content_production_workflow = Workflow(
+    name="content-production",
+    description=(
+        "Full content pipeline: trend research -> script -> storyboard. "
+        "Output is a VideoStoryboard JSON ready for Remotion rendering."
+    ),
+    db=SqliteDb(
+        session_table="content_workflow_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        Step(name="Trend Research", agent=trend_scout),
+        Step(name="Script & Storyboard", agent=scriptwriter),
+    ],
+)
+
+# ---------------------------------------------------------------------------
 # Workflows (deterministic pipelines)
 # ---------------------------------------------------------------------------
 # Unlike the Cerebro Team (which dynamically decides who to delegate to),
@@ -568,9 +835,16 @@ registry = Registry(
 agent_os = AgentOS(
     id="nexus",
     description="NEXUS Cerebro - Multi-agent analysis system",
-    agents=[research_agent, knowledge_agent, automation_agent],
-    teams=[cerebro],
-    workflows=[client_research_workflow],
+    agents=[
+        research_agent,
+        knowledge_agent,
+        automation_agent,
+        trend_scout,
+        scriptwriter,
+        analytics_agent,
+    ],
+    teams=[cerebro, content_team],
+    workflows=[client_research_workflow, content_production_workflow],
     knowledge=[knowledge_base],
     registry=registry,
     db=db,
