@@ -173,10 +173,15 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # --- MiniMax Models (primary) ---
 # M2.7: flagship model. Tool calling, reasoning, 200K context, ~60 tps.
 # SWE-Pro 56.22%, best open-source on GDPval-AA (ELO 1495).
+# role_map: MiniMax API does not support the "developer" role that OpenAI uses
+# for system prompts. We map "system" back to "system" to avoid 400 errors.
+_minimax_role_map = {"system": "system"}
+
 TOOL_MODEL = OpenAIChat(
     id="MiniMax-M2.7",
     api_key=os.getenv("MINIMAX_API_KEY"),
     base_url="https://api.minimax.io/v1",
+    role_map=_minimax_role_map,
 )
 
 # M2.7 Highspeed: identical results, ~100 tps. Best for streaming/fast UX.
@@ -185,6 +190,7 @@ FAST_MODEL = OpenAIChat(
     id="MiniMax-M2.7-highspeed",
     api_key=os.getenv("MINIMAX_API_KEY"),
     base_url="https://api.minimax.io/v1",
+    role_map=_minimax_role_map,
 )
 
 # Reasoning model: M2.7 standard for deep analysis (same model, used where
@@ -193,6 +199,7 @@ REASONING_MODEL = OpenAIChat(
     id="MiniMax-M2.7",
     api_key=os.getenv("MINIMAX_API_KEY"),
     base_url="https://api.minimax.io/v1",
+    role_map=_minimax_role_map,
 )
 
 # --- Groq Models (fallback / ultra-cheap tasks) ---
