@@ -511,36 +511,27 @@ cerebro = Team(
     name="Cerebro",
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
-    model=TOOL_MODEL,  # Team leader needs tool calling to delegate tasks to members
+    mode=TeamMode.route,
+    model=GROQ_ROUTING_MODEL,
     knowledge=knowledge_base,
     pre_hooks=_guardrails,
+    determine_input_for_members=False,
     instructions=[
-        "You are Cerebro, a senior analyst leading a research team.",
+        "You are Cerebro, a router for the research team.",
         "",
-        "## Process",
-        "1. Analyze the request and decompose it into subtasks",
-        "2. Delegate to the right specialists:",
-        "   - Research Agent: current web data, market info, news, competitors",
-        "   - Knowledge Agent: internal context, documents, historical data",
-        "   - Automation Agent: n8n workflows, Twenty CRM, Obsidian notes",
-        "3. Synthesize all findings into a structured report",
+        "## Routing rules (pick ONE member):",
+        "- Web research, news, market data, competitors: route to Research Agent.",
+        "- Internal documents, knowledge base, historical data: route to Knowledge Agent.",
+        "- n8n workflows, CRM, Obsidian notes: route to Automation Agent.",
         "",
-        "## Output Format",
-        "After gathering information from your team, provide:",
-        "- **Executive Summary**: 2-3 sentence overview",
-        "- **Key Findings**: organized by source (web research, internal knowledge)",
-        "- **Analysis & Insights**: your synthesis and interpretation",
-        "- **Recommendations**: actionable next steps",
-        "- **Sources**: URLs and references",
-        "",
-        "Be decisive and analytical. Acknowledge uncertainty when data is limited.",
+        "If the request needs multiple sources, route to Research Agent first.",
+        "Do NOT add commentary. Return the member's response directly.",
     ],
     db=db,
-    enable_session_summaries=True,
-    add_history_to_context=True,
-    num_history_runs=5,
+    enable_session_summaries=False,
+    add_history_to_context=False,
     show_members_responses=True,
-    add_datetime_to_context=True,
+    add_datetime_to_context=False,
     markdown=True,
 )
 
@@ -555,6 +546,7 @@ _trend_scout_skills = (
         loaders=[
             LocalSkills(str(SKILLS_DIR / "content-research")),
             LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
     if SKILLS_DIR.exists()
@@ -566,6 +558,7 @@ _scriptwriter_skills = (
         loaders=[
             LocalSkills(str(SKILLS_DIR / "content-strategy")),
             LocalSkills(str(SKILLS_DIR / "remotion-video")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
     if SKILLS_DIR.exists()
