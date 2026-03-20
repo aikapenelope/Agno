@@ -837,6 +837,224 @@ client_research_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
+# Deep Research System
+# ---------------------------------------------------------------------------
+# Production-grade deep research: Planner → 3 parallel searchers (broadcast)
+# → Reflector → Synthesizer. Inspired by Anthropic's multi-agent research,
+# Exa/LangGraph patterns, and ACE context engineering principles.
+
+# --- Planner: decomposes a research query into targeted sub-queries ---
+_research_planner = Agent(
+    name="Research Planner",
+    role="Decompose research queries into targeted sub-queries",
+    model=GROQ_ROUTING_MODEL,
+    instructions=[
+        "You are a research planner. Given a research topic, produce EXACTLY 3 sub-queries.",
+        "",
+        "## Rules",
+        "- Each sub-query targets a DIFFERENT angle of the topic:",
+        "  1. Current state / recent news / what's happening now",
+        "  2. Data / numbers / market size / statistics",
+        "  3. Key players / competitors / case studies / examples",
+        "- Each sub-query must be a specific search query (not a vague topic)",
+        "- Include site: filters when useful (e.g., site:techcrunch.com)",
+        "- Write queries in the language most likely to find results (English for global, Spanish for Latam)",
+        "",
+        "## Output format (follow exactly)",
+        "QUERY_1: [specific search query for current state]",
+        "QUERY_2: [specific search query for data/numbers]",
+        "QUERY_3: [specific search query for players/examples]",
+        "SUFFICIENCY: [what would a complete answer include? 2-3 bullet points]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+# --- Three parallel searchers (used in broadcast mode) ---
+_broad_scout = Agent(
+    name="Broad Scout",
+    role="General web search for current information",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    skills=_skills,
+    instructions=[
+        "You are a web researcher. Search for the topic provided.",
+        "",
+        "## Rules",
+        "- Do MAX 2 searches. One broad, one focused.",
+        "- Work with search snippets. Do NOT fetch full pages.",
+        "- Extract: key facts, numbers, dates, names, URLs.",
+        "",
+        "## Output format",
+        "Return a structured summary:",
+        "FINDINGS:",
+        "- [finding 1 with source URL]",
+        "- [finding 2 with source URL]",
+        "- [finding 3 with source URL]",
+        "GAPS: [what you couldn't find]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_data_scout = Agent(
+    name="Data Scout",
+    role="Search for statistics, market data, and numbers",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    skills=_skills,
+    instructions=[
+        "You are a data researcher. Search for statistics and numbers on the topic.",
+        "",
+        "## Rules",
+        "- Do MAX 2 searches. Focus on data, reports, market size, growth rates.",
+        "- Prioritize: government reports, industry analyses, research firms.",
+        "- Include site: filters like site:statista.com, site:mckinsey.com",
+        "",
+        "## Output format",
+        "Return a structured summary:",
+        "DATA_POINTS:",
+        "- [stat 1 with number and source URL]",
+        "- [stat 2 with number and source URL]",
+        "- [stat 3 with number and source URL]",
+        "GAPS: [what data you couldn't find]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_source_scout = Agent(
+    name="Source Scout",
+    role="Find primary sources, case studies, and key players",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    skills=_skills,
+    instructions=[
+        "You are a source researcher. Find primary sources and case studies.",
+        "",
+        "## Rules",
+        "- Do MAX 2 searches. Focus on company blogs, official announcements, case studies.",
+        "- Look for: who are the key players, what are they doing, real examples.",
+        "- Prioritize primary sources over news articles about them.",
+        "",
+        "## Output format",
+        "Return a structured summary:",
+        "SOURCES:",
+        "- [source 1: company/person, what they did, URL]",
+        "- [source 2: company/person, what they did, URL]",
+        "- [source 3: company/person, what they did, URL]",
+        "GAPS: [what sources you couldn't find]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+# --- Research team: runs 3 scouts in parallel via broadcast ---
+_research_team = Team(
+    name="Research Squad",
+    description="Three parallel researchers covering different angles",
+    mode=TeamMode.broadcast,
+    members=[_broad_scout, _data_scout, _source_scout],
+    model=GROQ_ROUTING_MODEL,
+    instructions=[
+        "Send the research query to ALL members simultaneously.",
+        "Return all their findings combined without modification.",
+    ],
+    show_members_responses=True,
+    markdown=True,
+)
+
+# --- Reflector: evaluates if research is sufficient ---
+_research_reflector = Agent(
+    name="Research Reflector",
+    role="Evaluate research completeness and identify critical gaps",
+    model=GROQ_REASONING_MODEL,
+    reasoning=True,
+    reasoning_min_steps=2,
+    reasoning_max_steps=4,
+    instructions=[
+        "You evaluate research findings for completeness.",
+        "",
+        "## Process",
+        "1. Read all findings from the research team",
+        "2. Check against the sufficiency criteria from the planner",
+        "3. Identify CRITICAL gaps (not nice-to-haves)",
+        "",
+        "## Output",
+        "ASSESSMENT: [SUFFICIENT or INSUFFICIENT]",
+        "COVERAGE: [what percentage of the topic is covered, roughly]",
+        "CRITICAL_GAPS: [list only gaps that would make the report misleading if missing]",
+        "ADDITIONAL_QUERIES: [if INSUFFICIENT, 1-2 specific queries to fill gaps. If SUFFICIENT, write NONE]",
+        "",
+        "## Rules",
+        "- Be strict: 70%+ coverage with no misleading gaps = SUFFICIENT",
+        "- Do NOT request more research just for completeness. Good enough is good enough.",
+        "- If the topic is niche and hard to find data on, lower your bar.",
+    ],
+    db=db,
+    markdown=True,
+)
+
+# --- Synthesizer: produces the final research report ---
+_research_synthesizer = Agent(
+    name="Research Synthesizer",
+    role="Produce comprehensive research reports from collected findings",
+    model=TOOL_MODEL,
+    tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    output_schema=ResearchReport,
+    use_json_mode=True,
+    instructions=[
+        "You synthesize research findings into a comprehensive report.",
+        "",
+        "## Process",
+        "1. Read ALL findings from the research team and reflector assessment",
+        "2. Organize by theme, not by source",
+        "3. Produce a ResearchReport with:",
+        "   - executive_summary: 2-3 sentences, the key takeaway",
+        "   - key_findings: specific facts with numbers and source URLs",
+        "   - recommendations: actionable next steps based on findings",
+        "   - sources: all URLs cited",
+        "   - confidence: high/medium/low based on source quality and coverage",
+        "",
+        "4. Save the report as a markdown file using save_file:",
+        "   Filename: research-<topic-slug>-<date>.md",
+        "   This makes it searchable in the knowledge base for future queries.",
+        "",
+        "## Rules",
+        "- Every finding must have a source URL. No unsourced claims.",
+        "- If data conflicts between sources, note the conflict.",
+        "- Write in Spanish if the topic is Latam-specific, English otherwise.",
+        "- Be analytical, not descriptive. Say what it MEANS, not just what it IS.",
+    ],
+    db=db,
+    learning=_learning,
+    markdown=True,
+)
+
+# --- Deep Research Workflow ---
+deep_research_workflow = Workflow(
+    name="deep-research",
+    description=(
+        "Production-grade deep research: planner decomposes the query, "
+        "3 searchers investigate in parallel, reflector evaluates completeness, "
+        "synthesizer produces a structured report saved to knowledge base."
+    ),
+    db=SqliteDb(
+        session_table="deep_research_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        Step(name="Plan", agent=_research_planner),
+        Step(name="Research", team=_research_team),
+        Step(name="Reflect", agent=_research_reflector),
+        Step(name="Synthesize", agent=_research_synthesizer),
+    ],
+)
+
+# ---------------------------------------------------------------------------
 # Registry (exposes components to AgentOS Studio UI)
 # ---------------------------------------------------------------------------
 
@@ -923,7 +1141,7 @@ agent_os = AgentOS(
         analytics_agent,
     ],
     teams=[cerebro, content_team],
-    workflows=[client_research_workflow, content_production_workflow],
+    workflows=[client_research_workflow, content_production_workflow, deep_research_workflow],
     knowledge=[knowledge_base],
     registry=registry,
     db=db,
