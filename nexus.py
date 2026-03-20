@@ -1078,6 +1078,164 @@ deep_research_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
+# SEO/GEO Content Team
+# ---------------------------------------------------------------------------
+# Produces blog articles optimized for both Google SEO and AI citation (GEO).
+# Workflow: keyword research → article draft → SEO audit → publish-ready MDX.
+
+_seo_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "deep-search")),
+            LocalSkills(str(SKILLS_DIR / "deep-synthesis")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+# --- Keyword Researcher: finds high-value topics for GEO ---
+_keyword_researcher = Agent(
+    name="Keyword Researcher",
+    role="Find high-value topics that AI engines cite and Google ranks",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    skills=_seo_skills,
+    instructions=[
+        "You find topics with high GEO (Generative Engine Optimization) potential.",
+        "",
+        "## Process (max 3 tool calls)",
+        "1. Search for what AI engines (ChatGPT, Perplexity) cite for the given niche",
+        "2. Search for gaps: topics where no good listicle exists in Spanish",
+        "3. Evaluate: does this topic have data, sources, and comparison potential?",
+        "",
+        "## Output format",
+        "TOPIC: [specific article title in listicle format]",
+        "TARGET_QUERY: [exact query users type into ChatGPT/Perplexity]",
+        "KEYWORD_PRIMARY: [main keyword in Spanish]",
+        "KEYWORDS_SECONDARY: [3-5 related keywords]",
+        "COMPETITION: [low/medium/high — are there good Spanish articles already?]",
+        "DATA_AVAILABLE: [what numbers/stats exist for this topic]",
+        "ANGLE: [our unique angle — how Whabi/Docflow/Aurora fits]",
+        "ESTIMATED_IMPACT: [high/medium/low for GEO citation potential]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+# --- Article Writer: produces GEO-optimized listicle articles ---
+_article_writer = Agent(
+    name="Article Writer",
+    role="Write GEO-optimized listicle articles in Spanish for aikalabs.cc blog",
+    model=FAST_MODEL,
+    tools=[FileTools(base_dir=Path(__file__).parent)],
+    skills=_seo_skills,
+    instructions=[
+        "You write blog articles optimized for AI citation (GEO) and Google SEO.",
+        "You write in Spanish (Latin America neutral).",
+        "",
+        "## Article Structure (MANDATORY — follow exactly)",
+        "",
+        "### 1. Quick Answer (first 200 words)",
+        "Numbered list of top entries with one-line descriptions.",
+        "This is what AI engines extract. Make it clean and extractable.",
+        "",
+        "### 2. Introduction (200-300 words)",
+        "Why this topic matters NOW. Include 2-3 stats with source URLs.",
+        "Use specific numbers, not 'many' or 'significant'.",
+        "",
+        "### 3. Detailed Entries (300-500 words each)",
+        "For each entry in the listicle:",
+        "- **Best for**: one-line positioning",
+        "- 3-4 bullet points of features",
+        "- Limitations (honest, builds trust)",
+        "- Price",
+        "- Our product (Whabi/Docflow/Aurora) is ALWAYS #1 but with honest comparison",
+        "",
+        "### 4. Comparison Table",
+        "Markdown table with key differentiators across all entries.",
+        "",
+        "### 5. How to Choose (200 words)",
+        "Decision framework: 'If you need X, choose Y'",
+        "",
+        "### 6. FAQ Section (4-5 questions)",
+        "Match exact queries users ask ChatGPT/Perplexity.",
+        "Each answer: 2-3 sentences, factual, with source if possible.",
+        "",
+        "## Rules",
+        "- Total length: 1500-2500 words (sweet spot for GEO)",
+        "- Every claim must have a source URL",
+        "- No marketing language ('premier', 'best-in-class', 'revolutionary')",
+        "- Use evidence-dense writing: numbers, dates, comparisons",
+        "- Format as MDX with frontmatter (title, description, date, tags, author)",
+        "- Save to: knowledge/blog-drafts/<slug>.mdx",
+    ],
+    db=db,
+    learning=_learning,
+    markdown=True,
+)
+
+# --- SEO Auditor: reviews articles for SEO/GEO compliance ---
+_seo_auditor = Agent(
+    name="SEO Auditor",
+    role="Audit articles for SEO and GEO optimization compliance",
+    model=GROQ_ROUTING_MODEL,
+    tools=[FileTools(base_dir=Path(__file__).parent, enable_save_file=False)],
+    instructions=[
+        "You audit blog articles for SEO and GEO (Generative Engine Optimization).",
+        "",
+        "## Checklist (score each 0-10)",
+        "",
+        "### GEO Signals",
+        "- Quick Answer in first 200 words? (extractable by AI)",
+        "- Listicle format with numbered entries?",
+        "- Evidence density: stats with source URLs?",
+        "- FAQ section matching AI query patterns?",
+        "- No marketing fluff? (AI filters promotional content)",
+        "- Freshness signals: specific dates, 'updated March 2026'?",
+        "",
+        "### SEO Signals",
+        "- Title under 60 chars with primary keyword?",
+        "- Meta description under 160 chars with keyword?",
+        "- H2/H3 structure with keywords?",
+        "- Comparison table present?",
+        "- Internal links to product pages (/whabi, /docflow, /aurora)?",
+        "- At least 1500 words?",
+        "",
+        "## Output format",
+        "SCORE: [X/100]",
+        "GEO_SCORE: [X/60]",
+        "SEO_SCORE: [X/40]",
+        "ISSUES:",
+        "- [issue 1 with specific fix]",
+        "- [issue 2 with specific fix]",
+        "VERDICT: [PUBLISH / REVISE / REWRITE]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+# --- SEO/GEO Content Workflow ---
+seo_content_workflow = Workflow(
+    name="seo-content",
+    description=(
+        "SEO/GEO content pipeline: keyword research → article draft → "
+        "SEO audit. Produces publish-ready MDX articles for aikalabs.cc blog."
+    ),
+    db=SqliteDb(
+        session_table="seo_content_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        Step(name="Keyword Research", agent=_keyword_researcher),
+        Step(name="Article Draft", agent=_article_writer),
+        Step(name="SEO Audit", agent=_seo_auditor),
+    ],
+)
+
+# ---------------------------------------------------------------------------
 # Registry (exposes components to AgentOS Studio UI)
 # ---------------------------------------------------------------------------
 
@@ -1164,7 +1322,7 @@ agent_os = AgentOS(
         analytics_agent,
     ],
     teams=[cerebro, content_team],
-    workflows=[client_research_workflow, content_production_workflow, deep_research_workflow],
+    workflows=[client_research_workflow, content_production_workflow, deep_research_workflow, seo_content_workflow],
     knowledge=[knowledge_base],
     registry=registry,
     db=db,
