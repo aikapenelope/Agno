@@ -571,6 +571,28 @@ _analytics_skills = (
     else None
 )
 
+_deep_search_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "deep-search")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_deep_synthesis_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "deep-synthesis")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
 # --- Trend Scout: finds and evaluates trending topics ---
 trend_scout = Agent(
     name="Trend Scout",
@@ -877,7 +899,7 @@ _broad_scout = Agent(
     model=GROQ_ROUTING_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
-    skills=_skills,
+    skills=_deep_search_skills,
     instructions=[
         "You are a web researcher. Search for the topic provided.",
         "",
@@ -904,7 +926,7 @@ _data_scout = Agent(
     model=GROQ_ROUTING_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
-    skills=_skills,
+    skills=_deep_search_skills,
     instructions=[
         "You are a data researcher. Search for statistics and numbers on the topic.",
         "",
@@ -931,7 +953,7 @@ _source_scout = Agent(
     model=GROQ_ROUTING_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
-    skills=_skills,
+    skills=_deep_search_skills,
     instructions=[
         "You are a source researcher. Find primary sources and case studies.",
         "",
@@ -1004,6 +1026,7 @@ _research_synthesizer = Agent(
     role="Produce comprehensive research reports from collected findings",
     model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    skills=_deep_synthesis_skills,
     output_schema=ResearchReport,
     use_json_mode=True,
     instructions=[
