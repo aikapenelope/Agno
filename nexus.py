@@ -44,6 +44,13 @@ from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from agno.learn.machine import LearningMachine
+from agno.learn import (
+    LearnedKnowledgeConfig,
+    LearningMode,
+    UserProfileConfig,
+    UserMemoryConfig,
+    EntityMemoryConfig,
+)
 from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
@@ -214,6 +221,21 @@ knowledge_base = Knowledge(
     contents_db=db,
 )
 
+# Learnings vector DB (separate table for what the agents learn over time).
+learnings_db = LanceDb(
+    uri=str(Path(__file__).parent / "lancedb"),
+    table_name="nexus_learnings",
+    search_type=SearchType.hybrid,
+    embedder=embedder,
+)
+
+learnings_knowledge = Knowledge(
+    name="NEXUS Learnings",
+    description="Accumulated agent learnings, patterns, and corrections",
+    vector_db=learnings_db,
+    contents_db=db,
+)
+
 # Index all supported files in the knowledge/ folder on startup.
 for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
     if file_path.suffix.lower() in {".pdf", ".txt", ".md", ".csv", ".json"}:
@@ -268,10 +290,17 @@ GROQ_REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
 GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 
 # --- Learning Machine ---
-# The learning subsystem (user_profile, user_memory) requires structured
-# outputs (response_format) which MiniMax does not support. Use Groq for
-# learning while agents use MiniMax for responses.
-_learning = LearningMachine(model=GROQ_FAST_MODEL)
+# Full learning system: profile, memory, entities, and accumulated knowledge.
+# Uses GROQ_FAST_MODEL (llama-3.1-8b, 560 tps) for extraction -- cheap and fast.
+# All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
+_learning = LearningMachine(
+    model=GROQ_FAST_MODEL,
+    knowledge=learnings_knowledge,
+    user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
+    entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
+    learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
+)
 
 # ---------------------------------------------------------------------------
 # Guardrails (applied to all agents and teams)
