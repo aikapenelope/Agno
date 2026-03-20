@@ -44,6 +44,13 @@ from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from agno.learn.machine import LearningMachine
+from agno.learn import (
+    LearnedKnowledgeConfig,
+    LearningMode,
+    UserProfileConfig,
+    UserMemoryConfig,
+    EntityMemoryConfig,
+)
 from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
 from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
@@ -214,6 +221,21 @@ knowledge_base = Knowledge(
     contents_db=db,
 )
 
+# Learnings vector DB (separate table for what the agents learn over time).
+learnings_db = LanceDb(
+    uri=str(Path(__file__).parent / "lancedb"),
+    table_name="nexus_learnings",
+    search_type=SearchType.hybrid,
+    embedder=embedder,
+)
+
+learnings_knowledge = Knowledge(
+    name="NEXUS Learnings",
+    description="Accumulated agent learnings, patterns, and corrections",
+    vector_db=learnings_db,
+    contents_db=db,
+)
+
 # Index all supported files in the knowledge/ folder on startup.
 for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
     if file_path.suffix.lower() in {".pdf", ".txt", ".md", ".csv", ".json"}:
@@ -264,12 +286,21 @@ REASONING_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 GROQ_TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
 GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
 GROQ_REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
+# GPT-OSS-20B: 1000 tps, tool calling, $0.075/M input. Ideal for routing/search.
+GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 
 # --- Learning Machine ---
-# The learning subsystem (user_profile, user_memory) requires structured
-# outputs (response_format) which MiniMax does not support. Use Groq for
-# learning while agents use MiniMax for responses.
-_learning = LearningMachine(model=GROQ_FAST_MODEL)
+# Full learning system: profile, memory, entities, and accumulated knowledge.
+# Uses GROQ_FAST_MODEL (llama-3.1-8b, 560 tps) for extraction -- cheap and fast.
+# All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
+_learning = LearningMachine(
+    model=GROQ_FAST_MODEL,
+    knowledge=learnings_knowledge,
+    user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
+    entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
+    learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
+)
 
 # ---------------------------------------------------------------------------
 # Guardrails (applied to all agents and teams)
@@ -551,10 +582,10 @@ _analytics_skills = (
 trend_scout = Agent(
     name="Trend Scout",
     role="Research AI/tech trends and produce content briefs",
-    model=TOOL_MODEL,
+    model=GROQ_ROUTING_MODEL,
     tools=[
         DuckDuckGoTools(),
-        HackerNewsTools(),
+        WebSearchTools(fixed_max_results=3),
     ],
     retries=0,
     pre_hooks=_guardrails,
@@ -594,7 +625,7 @@ trend_scout = Agent(
 scriptwriter = Agent(
     name="Scriptwriter",
     role="Write video scripts and storyboards for short-form content",
-    model=TOOL_MODEL,
+    model=FAST_MODEL,
     tools=[FileTools(base_dir=Path.home() / "nexus-videos")],
     pre_hooks=_guardrails,
     skills=_scriptwriter_skills,
@@ -602,68 +633,37 @@ scriptwriter = Agent(
         "You are a professional scriptwriter for short-form video (Reels/TikTok).",
         "You write in Spanish (Latin America neutral).",
         "",
-        "## Process",
-        "1. Receive a content brief with topic, angle, and hooks",
-        "2. Select the best hook variant (or improve it)",
-        "3. Write a script: 8-10 sentences, 30-45 seconds when spoken",
-        "4. Break into 5-8 scenes with visual descriptions",
-        "5. Build the complete VideoStoryboard JSON",
-        "6. IMMEDIATELY save the JSON using save_file tool (do NOT wait to be asked)",
+        "## Process (do this in ONE response, then save)",
+        "1. Read the content brief",
+        "2. Write the VideoStoryboard JSON directly (no drafts, no discussion)",
+        "3. Save it immediately with save_file",
+        "4. Confirm with a 2-line summary (title + scene count)",
         "",
         "## Script Rules",
-        "- First 3 seconds: hook (question, bold statement, or surprising fact)",
-        "- Sentences: max 15 words each (for readability as captions)",
-        "- Tone: professional but accessible, like explaining to a smart friend",
-        "- Always end with a clear CTA (follow, comment, share)",
+        "- 5-6 scenes maximum (not 7-8, keep it tight)",
+        "- First scene: hook (question, bold statement, or surprising fact)",
+        "- Sentences: max 15 words each",
+        "- Tone: professional but accessible",
+        "- Last scene: CTA (follow, comment, share)",
         "- Never start with greetings ('Hola', 'Bienvenidos')",
         "",
-        "## Visual Rules",
-        "- Each scene visual must be detailed enough for AI image generation",
-        "- Include colors, composition, style in visual descriptions",
-        "- Alternate between text-heavy and visual-heavy scenes",
-        "- First scene: bold text overlay matching the hook",
-        "- Last scene: CTA with account branding",
+        "## Visual descriptions: be concise but specific",
+        "- Max 20 words per visual description",
+        "- Include: subject, setting, style (e.g., 'Doctor reviewing tablet in modern clinic, blue tones, cinematic')",
+        "- Do NOT write paragraphs for visuals",
         "",
-        "## MANDATORY: AUTO-SAVE JSON",
-        "After creating the storyboard, you MUST IMMEDIATELY use the save_file tool",
-        "to save the complete JSON to the Remotion project. This is automatic -- do",
-        "NOT ask the user for permission, just save it.",
-        "",
+        "## AUTO-SAVE (mandatory, no confirmation needed)",
         "File path: public/content/<slug>.json",
-        "Where <slug> is the title in lowercase with hyphens (e.g., 'whabi-promo.json')",
-        "The base directory is already set to ~/nexus-videos, so use relative paths.",
+        "Where <slug> is the title in lowercase with hyphens.",
+        "Base directory is ~/nexus-videos, use relative paths only.",
         "",
-        "The JSON must be the COMPLETE storyboard with ALL scenes, ALL visual",
-        "descriptions, ALL details. Do NOT summarize or shorten anything.",
+        "## JSON SCHEMA",
+        '{"title":"...","hook":"...","language":"es","total_duration_seconds":30,',
+        '"scenes":[{"text":"...","visual":"...","duration_seconds":5,"transition":"fade"}],',
+        '"hashtags":["#..."],"cta":"...","platform":"instagram_reels",',
+        '"style":{"font":"Inter","primary_color":"#1a1a2e","accent_color":"#e94560"}}',
         "",
-        "## JSON SCHEMA (follow exactly)",
-        "```json",
-        "{",
-        '  "title": "Video title",',
-        '  "hook": "First 3 seconds text",',
-        '  "language": "es",',
-        '  "total_duration_seconds": 30,',
-        '  "scenes": [',
-        "    {",
-        '      "text": "Narration text in Spanish",',
-        '      "visual": "Detailed image description for AI generation",',
-        '      "duration_seconds": 4,',
-        '      "transition": "fade"',
-        "    }",
-        "  ],",
-        '  "hashtags": ["#hashtag1", "#hashtag2"],',
-        '  "cta": "Call to action text",',
-        '  "platform": "instagram_reels",',
-        '  "style": {',
-        '    "font": "Inter",',
-        '    "primary_color": "#1a1a2e",',
-        '    "accent_color": "#e94560"',
-        "  }",
-        "}",
-        "```",
-        "",
-        "After saving, show the user a human-readable summary of the storyboard",
-        "AND confirm the file was saved with the full path.",
+        "After saving, reply ONLY: 'Saved: <filename> (<N> scenes, <duration>s)'",
     ],
     db=db,
     learning=_learning,
@@ -720,35 +720,29 @@ content_team = Team(
     description="Video content production team for Instagram Reels and TikTok",
     mode=TeamMode.coordinate,
     members=[trend_scout, scriptwriter, analytics_agent],
-    model=TOOL_MODEL,
+    model=GROQ_ROUTING_MODEL,
     pre_hooks=_guardrails,
     instructions=[
-        "You are the Content Factory director for a Spanish-language AI content brand.",
-        "You coordinate video production for Instagram Reels and TikTok.",
+        "You are the Content Factory director.",
         "",
-        "## Pipeline",
-        "1. **Research**: Ask Trend Scout to find today's best AI/tech topic",
-        "2. **Script**: Send the brief to Scriptwriter for script + storyboard",
-        "3. **Review**: Present the storyboard for human approval before production",
-        "4. **Analytics**: When asked, have Analytics Agent generate performance reports",
+        "## For content creation requests:",
+        "1. Delegate to Trend Scout FIRST. Pass the user's request as-is.",
+        "2. Take Trend Scout's brief and delegate to Scriptwriter. Pass the full brief.",
+        "3. Return the Scriptwriter's response directly. Do NOT rewrite or summarize it.",
         "",
-        "## Delegation Rules",
-        "- Trend Scout: anything about finding topics, trends, news",
-        "- Scriptwriter: anything about writing scripts, storyboards, hooks",
-        "- Analytics Agent: anything about metrics, reports, optimization",
+        "## For analytics requests:",
+        "Delegate to Analytics Agent and return their response directly.",
         "",
-        "## Output",
-        "- For content creation: deliver the VideoStoryboard JSON",
-        "- For analytics: deliver the weekly report",
-        "- Always present results clearly for human review",
-        "- Flag any issues (low relevance score, missing sources, etc.)",
+        "## Rules",
+        "- Do NOT add your own commentary between delegations.",
+        "- Do NOT summarize what members said. Pass their output through.",
+        "- Your only job is routing tasks to the right member.",
     ],
     db=db,
-    enable_session_summaries=True,
-    add_history_to_context=True,
-    num_history_runs=5,
+    enable_session_summaries=False,
+    add_history_to_context=False,
     show_members_responses=True,
-    add_datetime_to_context=True,
+    add_datetime_to_context=False,
     markdown=True,
 )
 
