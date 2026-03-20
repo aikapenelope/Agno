@@ -264,6 +264,8 @@ REASONING_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 GROQ_TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
 GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
 GROQ_REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
+# SpecDec: 1600 tps with reliable tool calling. Use for routing/coordination.
+GROQ_SPECDEC_MODEL = Groq(id="llama-3.3-70b-specdec")
 
 # --- Learning Machine ---
 # The learning subsystem (user_profile, user_memory) requires structured
@@ -551,7 +553,7 @@ _analytics_skills = (
 trend_scout = Agent(
     name="Trend Scout",
     role="Research AI/tech trends and produce content briefs",
-    model=TOOL_MODEL,
+    model=GROQ_SPECDEC_MODEL,
     tools=[
         DuckDuckGoTools(),
         WebSearchTools(fixed_max_results=3),
@@ -689,7 +691,7 @@ content_team = Team(
     description="Video content production team for Instagram Reels and TikTok",
     mode=TeamMode.coordinate,
     members=[trend_scout, scriptwriter, analytics_agent],
-    model=FAST_MODEL,
+    model=GROQ_SPECDEC_MODEL,
     pre_hooks=_guardrails,
     instructions=[
         "You are the Content Factory director.",
