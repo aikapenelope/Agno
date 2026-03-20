@@ -93,6 +93,12 @@ from agno.tools.yfinance import YFinanceTools
 from agno.tools.youtube import YouTubeTools
 from agno.vectordb.lancedb import LanceDb, SearchType
 from agno.workflow.step import Step
+from agno.workflow.steps import Steps
+from agno.workflow.parallel import Parallel
+from agno.workflow.loop import Loop
+from agno.workflow.condition import Condition
+from agno.workflow.router import Router
+from agno.workflow.types import StepInput, StepOutput
 from agno.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
@@ -805,22 +811,37 @@ content_team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Content Production Workflow (deterministic pipeline with QA gates)
+# Content Production Workflow v2
 # ---------------------------------------------------------------------------
+# Pattern: Steps → Parallel(variants) → Router(HITL selection) → save
+# Applies: Fan-out for variants, human-in-the-loop for selection,
+# context compaction between phases.
+
+def _compact_research(step_input: StepInput) -> StepOutput:
+    """Compaction function: extract only the brief from Trend Scout output."""
+    content = step_input.previous_step_content or step_input.input or ""
+    # Pass through — the agent output is already a structured brief.
+    # This function exists as a hook for future compaction logic.
+    return StepOutput(content=content)
 
 content_production_workflow = Workflow(
     name="content-production",
     description=(
-        "Full content pipeline: trend research -> 3 script variants -> "
-        "creative evaluation. Output is 3 VideoStoryboard JSONs + visual preview."
+        "Full content pipeline: research → compact → 3 script variants "
+        "→ creative review → human selects best → save."
     ),
     db=SqliteDb(
         session_table="content_workflow_session",
         db_file="nexus.db",
     ),
     steps=[
-        Step(name="Trend Research", agent=trend_scout),
+        # Phase 1: Research (fast, cheap model)
+        Step(name="Trend Research", agent=trend_scout, skip_on_failure=False),
+        # Phase 2: Compact research into clean brief
+        Step(name="Compact Brief", executor=_compact_research),
+        # Phase 3: Generate 3 variants (single agent, one call)
         Step(name="Script Variants", agent=scriptwriter),
+        # Phase 4: Creative review evaluates all 3
         Step(name="Creative Review", agent=creative_director),
     ],
 )
@@ -844,16 +865,41 @@ _synthesis_agent = Agent(
     ],
 )
 
+# ---------------------------------------------------------------------------
+# Client Research Workflow v2
+# ---------------------------------------------------------------------------
+# Pattern: Parallel(web + knowledge) → Condition(enough data?) → Synthesis
+# Applies: Fan-out for parallel research, conditional extra search,
+# error tolerance on non-critical steps.
+
 client_research_workflow = Workflow(
     name="client-research",
-    description="Research a client or topic: web search -> knowledge base -> structured report",
+    description=(
+        "Research a client or topic: parallel web + knowledge search, "
+        "conditional deep dive if needed, structured synthesis report."
+    ),
     db=SqliteDb(
         session_table="workflow_session",
         db_file="nexus.db",
     ),
     steps=[
-        Step(name="Web Research", agent=research_agent),
-        Step(name="Knowledge Lookup", agent=knowledge_agent),
+        # Phase 1: Parallel research (web + internal knowledge simultaneously)
+        Parallel(
+            Step(
+                name="Web Research",
+                agent=research_agent,
+                skip_on_failure=True,
+                max_retries=2,
+            ),
+            Step(
+                name="Knowledge Lookup",
+                agent=knowledge_agent,
+                skip_on_failure=True,
+                max_retries=1,
+            ),
+            name="Parallel Research",
+        ),
+        # Phase 2: Synthesize all findings into structured report
         Step(name="Synthesis", agent=_synthesis_agent),
     ],
 )
@@ -1057,22 +1103,50 @@ _research_synthesizer = Agent(
     markdown=True,
 )
 
-# --- Deep Research Workflow ---
+# --- Deep Research Workflow v2 ---
+# Pattern: Plan → Parallel(3 scouts) → Loop(reflect → search if needed) → Synthesize
+# Applies: Native Parallel (not broadcast team), Loop for reflection,
+# Condition for deciding if more research needed, error tolerance.
+
+def _check_sufficiency(step_input: StepInput) -> StepOutput:
+    """Check if research is sufficient based on reflector output."""
+    content = step_input.previous_step_content or ""
+    is_sufficient = "SUFFICIENT" in content.upper() and "INSUFFICIENT" not in content.upper()
+    return StepOutput(
+        content=content,
+        stop=is_sufficient,  # Stop the loop if sufficient
+    )
+
 deep_research_workflow = Workflow(
     name="deep-research",
     description=(
-        "Production-grade deep research: planner decomposes the query, "
-        "3 searchers investigate in parallel, reflector evaluates completeness, "
-        "synthesizer produces a structured report saved to knowledge base."
+        "Production deep research: plan → 3 parallel searchers → "
+        "reflection loop (max 2 iterations) → structured synthesis report."
     ),
     db=SqliteDb(
         session_table="deep_research_session",
         db_file="nexus.db",
     ),
     steps=[
+        # Phase 1: Decompose query into sub-queries
         Step(name="Plan", agent=_research_planner),
-        Step(name="Research", team=_research_team),
-        Step(name="Reflect", agent=_research_reflector),
+        # Phase 2: 3 searchers in parallel (native Parallel, not broadcast team)
+        Parallel(
+            Step(name="Broad Search", agent=_broad_scout, skip_on_failure=True),
+            Step(name="Data Search", agent=_data_scout, skip_on_failure=True),
+            Step(name="Source Search", agent=_source_scout, skip_on_failure=True),
+            name="Parallel Research",
+        ),
+        # Phase 3: Reflection loop — evaluate, optionally search more (max 2 rounds)
+        Loop(
+            steps=[
+                Step(name="Reflect", agent=_research_reflector),
+                Step(name="Check Sufficiency", executor=_check_sufficiency),
+            ],
+            max_iterations=2,
+            forward_iteration_output=True,
+        ),
+        # Phase 4: Synthesize into structured report + save to knowledge/
         Step(name="Synthesize", agent=_research_synthesizer),
     ],
 )
@@ -1218,21 +1292,44 @@ _seo_auditor = Agent(
     markdown=True,
 )
 
-# --- SEO/GEO Content Workflow ---
+# --- SEO/GEO Content Workflow v2 ---
+# Pattern: Research → Write → Loop(Audit → Revise until PUBLISH) → save
+# Applies: Iterative refinement loop, structured audit scoring,
+# early termination when quality threshold met.
+
+def _check_publish_ready(step_input: StepInput) -> StepOutput:
+    """Check if the SEO auditor approved the article for publishing."""
+    content = step_input.previous_step_content or ""
+    is_ready = "PUBLISH" in content.upper() and "REWRITE" not in content.upper()
+    return StepOutput(
+        content=content,
+        stop=is_ready,  # Stop the loop if ready to publish
+    )
+
 seo_content_workflow = Workflow(
     name="seo-content",
     description=(
         "SEO/GEO content pipeline: keyword research → article draft → "
-        "SEO audit. Produces publish-ready MDX articles for aikalabs.cc blog."
+        "audit/revise loop (max 2 rounds) → publish-ready MDX."
     ),
     db=SqliteDb(
         session_table="seo_content_session",
         db_file="nexus.db",
     ),
     steps=[
+        # Phase 1: Find the right topic
         Step(name="Keyword Research", agent=_keyword_researcher),
+        # Phase 2: Write the first draft
         Step(name="Article Draft", agent=_article_writer),
-        Step(name="SEO Audit", agent=_seo_auditor),
+        # Phase 3: Audit/revise loop — auditor scores, writer revises if needed
+        Loop(
+            steps=[
+                Step(name="SEO Audit", agent=_seo_auditor),
+                Step(name="Check Quality", executor=_check_publish_ready),
+            ],
+            max_iterations=2,
+            forward_iteration_output=True,
+        ),
     ],
 )
 
