@@ -41,6 +41,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from agno.agent import Agent
+from agno.approval.decorator import approval
+from agno.compression.manager import CompressionManager
+from agno.os.interfaces.whatsapp.whatsapp import Whatsapp
+from agno.tools.decorator import tool
 from agno.db.sqlite import SqliteDb
 from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from agno.learn.machine import LearningMachine
@@ -308,6 +312,14 @@ _learning = LearningMachine(
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
 )
 
+# --- Context Compression ---
+# Compresses long tool results to save tokens in agents with heavy tool usage.
+# Uses GROQ_FAST_MODEL (llama-3.1-8b, 560 tps) for cheap/fast compression.
+_compression = CompressionManager(
+    model=GROQ_FAST_MODEL,
+    compress_tool_results=True,
+)
+
 # ---------------------------------------------------------------------------
 # Guardrails (applied to all agents and teams)
 # ---------------------------------------------------------------------------
@@ -355,6 +367,10 @@ research_agent = Agent(
     num_history_runs=3,
     add_datetime_to_context=True,
     markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=GROQ_FAST_MODEL,
+    compression_manager=_compression,
 )
 
 # ---------------------------------------------------------------------------
@@ -387,6 +403,9 @@ knowledge_agent = Agent(
     add_datetime_to_context=True,
     update_memory_on_run=True,
     markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=GROQ_FAST_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -507,6 +526,10 @@ automation_agent = Agent(
     num_history_runs=3,
     add_datetime_to_context=True,
     markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=GROQ_FAST_MODEL,
+    compression_manager=_compression,
 )
 
 # ---------------------------------------------------------------------------
@@ -534,11 +557,15 @@ cerebro = Team(
         "Do NOT add commentary. Return the member's response directly.",
     ],
     db=db,
+    learning=_learning,
     enable_session_summaries=False,
     add_history_to_context=False,
     show_members_responses=True,
     add_datetime_to_context=False,
     markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=GROQ_FAST_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -642,12 +669,33 @@ trend_scout = Agent(
     markdown=True,
 )
 
+# --- Approval-wrapped file tools for sensitive write operations ---
+# The @approval decorator requires human confirmation before the agent saves
+# files. This prevents accidental overwrites and creates an audit trail.
+_video_file_tools = FileTools(base_dir=Path.home() / "nexus-videos")
+_article_file_tools = FileTools(base_dir=Path(__file__).parent)
+
+
+@approval  # type: ignore[arg-type]  # agno's @approval handles Function objects at runtime
+@tool(requires_confirmation=True)
+def save_video_file(contents: str, file_name: str, overwrite: bool = True) -> str:
+    """Save a video storyboard JSON file. Requires approval before writing."""
+    return _video_file_tools.save_file(contents, file_name, overwrite)
+
+
+@approval(type="audit")
+@tool(requires_confirmation=True)
+def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> str:
+    """Save a blog article MDX file. Creates an audit record of the write."""
+    return _article_file_tools.save_file(contents, file_name, overwrite)
+
+
 # --- Scriptwriter: turns briefs into video scripts + storyboards ---
 scriptwriter = Agent(
     name="Scriptwriter",
     role="Write video scripts and storyboards for short-form content",
     model=FAST_MODEL,
-    tools=[FileTools(base_dir=Path.home() / "nexus-videos")],
+    tools=[save_video_file, _video_file_tools],
     pre_hooks=_guardrails,
     skills=_scriptwriter_skills,
     instructions=[
@@ -803,11 +851,15 @@ content_team = Team(
         "Tell the user: 'Use the content-production workflow for the full pipeline.'",
     ],
     db=db,
+    learning=_learning,
     enable_session_summaries=False,
     add_history_to_context=False,
     show_members_responses=True,
     add_datetime_to_context=False,
     markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=GROQ_FAST_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -964,6 +1016,7 @@ _broad_scout = Agent(
     ],
     db=db,
     markdown=True,
+    compression_manager=_compression,
 )
 
 _data_scout = Agent(
@@ -991,6 +1044,7 @@ _data_scout = Agent(
     ],
     db=db,
     markdown=True,
+    compression_manager=_compression,
 )
 
 _source_scout = Agent(
@@ -1018,6 +1072,7 @@ _source_scout = Agent(
     ],
     db=db,
     markdown=True,
+    compression_manager=_compression,
 )
 
 # --- Research team: runs 3 scouts in parallel via broadcast ---
@@ -1101,6 +1156,7 @@ _research_synthesizer = Agent(
     db=db,
     learning=_learning,
     markdown=True,
+    compression_manager=_compression,
 )
 
 # --- Deep Research Workflow v2 ---
@@ -1205,7 +1261,7 @@ _article_writer = Agent(
     name="Article Writer",
     role="Write GEO-optimized listicle articles in Spanish for aikalabs.cc blog",
     model=FAST_MODEL,
-    tools=[FileTools(base_dir=Path(__file__).parent)],
+    tools=[save_article_file, _article_file_tools],
     skills=_seo_skills,
     instructions=[
         "You write blog articles optimized for AI citation (GEO) and Google SEO.",
@@ -1404,8 +1460,55 @@ registry = Registry(
 )
 
 # ---------------------------------------------------------------------------
+# WhatsApp Interface (connects Cerebro to WhatsApp Business API)
+# ---------------------------------------------------------------------------
+# Set these env vars to enable WhatsApp:
+#   WHATSAPP_PHONE_ID     - Meta Business phone number ID
+#   WHATSAPP_ACCESS_TOKEN  - Meta Graph API access token
+#   WHATSAPP_VERIFY_TOKEN  - Webhook verification token (you choose this)
+# The interface exposes a /whatsapp webhook endpoint on the AgentOS server.
+
+_interfaces: list = []
+if os.getenv("WHATSAPP_ACCESS_TOKEN"):
+    _interfaces.append(
+        Whatsapp(
+            agent=research_agent,  # Default agent for WhatsApp conversations
+            team=cerebro,  # Route complex queries through Cerebro
+            phone_number_id=os.getenv("WHATSAPP_PHONE_ID"),
+            access_token=os.getenv("WHATSAPP_ACCESS_TOKEN"),
+            verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", "nexus-verify"),
+        )
+    )
+
+# ---------------------------------------------------------------------------
 # AgentOS
 # ---------------------------------------------------------------------------
+# Scheduler: already enabled (scheduler=True). Schedules are managed at
+# runtime via the AgentOS REST API, not in code. Examples:
+#
+#   # Create a daily research task (8am weekdays, America/Bogota):
+#   POST http://localhost:7777/v1/schedules
+#   {
+#     "name": "daily-research",
+#     "cron_expr": "0 8 * * 1-5",
+#     "endpoint": "/v1/agents/Research Agent/runs",
+#     "method": "POST",
+#     "payload": {"message": "Find today's top AI trend for content"},
+#     "timezone": "America/Bogota"
+#   }
+#
+#   # Create a weekly content review:
+#   POST http://localhost:7777/v1/schedules
+#   {
+#     "name": "weekly-content-review",
+#     "cron_expr": "0 9 * * 1",
+#     "endpoint": "/v1/agents/Analytics Agent/runs",
+#     "method": "POST",
+#     "payload": {"message": "Generate weekly content performance report"},
+#     "timezone": "America/Bogota"
+#   }
+#
+# Manage schedules: GET/PATCH/DELETE /v1/schedules/{schedule_id}
 
 agent_os = AgentOS(
     id="nexus",
@@ -1423,6 +1526,7 @@ agent_os = AgentOS(
     workflows=[client_research_workflow, content_production_workflow, deep_research_workflow, seo_content_workflow],
     knowledge=[knowledge_base],
     registry=registry,
+    interfaces=_interfaces or None,
     db=db,
     tracing=True,
     scheduler=True,
