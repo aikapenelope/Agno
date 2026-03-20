@@ -1086,6 +1086,7 @@ deep_research_workflow = Workflow(
 _seo_skills = (
     Skills(
         loaders=[
+            LocalSkills(str(SKILLS_DIR / "seo-geo")),
             LocalSkills(str(SKILLS_DIR / "deep-search")),
             LocalSkills(str(SKILLS_DIR / "deep-synthesis")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
