@@ -699,7 +699,7 @@ cerebro = Team(
         "Do NOT add commentary. Return the member's response directly.",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader (routes only, members have their own learning)
     enable_session_summaries=False,
     add_history_to_context=False,
     show_members_responses=True,
@@ -1090,7 +1090,7 @@ content_team = Team(
         "Tell the user: 'Use the content-production workflow for the full pipeline.'",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader (routes only, members have their own learning)
     enable_session_summaries=False,
     add_history_to_context=False,
     show_members_responses=True,
@@ -2246,7 +2246,9 @@ nexus_master = Team(
         "- Default → Research Agent",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader -- it only routes, doesn't need search_learnings/save_learning.
+    # Individual member agents have their own learning. Adding learning here gives the leader
+    # extra tools that MiniMax calls instead of delegate_task_to_member.
     enable_session_summaries=True,
     add_history_to_context=True,
     num_history_runs=5,
@@ -2492,7 +2494,7 @@ whatsapp_support_team = Team(
         "Do NOT add commentary. Return the agent's response directly.",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader (routes only, support agents have their own learning)
     enable_session_summaries=False,
     add_history_to_context=True,
     num_history_runs=3,
