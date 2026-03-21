@@ -688,6 +688,8 @@ cerebro = Team(
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
     mode=TeamMode.route,
+    respond_directly=True,
+    tool_call_limit=1,
     model=GROQ_ROUTING_MODEL,
     knowledge=knowledge_base,
     # pre_hooks on individual agents, not team leader
@@ -1083,6 +1085,8 @@ content_team = Team(
     name="Content Factory",
     description="Video content production team for Instagram Reels and TikTok",
     mode=TeamMode.route,
+    respond_directly=True,
+    tool_call_limit=1,
     members=[trend_scout, scriptwriter, analytics_agent],
     model=GROQ_ROUTING_MODEL,
     # pre_hooks on individual agents, not team leader
@@ -2231,8 +2235,9 @@ nexus_master = Team(
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
+    respond_directly=True,  # Stop after routing, return member response directly
+    tool_call_limit=1,  # Only ONE tool call: delegate_task_to_member
     # No pre_hooks on team leader -- guardrails run on individual member agents.
-    # PII guardrail on the leader blocks messages before routing, causing errors.
     determine_input_for_members=False,
     instructions=[
         "You are NEXUS, the master orchestrator for AikaLabs.",
@@ -2491,6 +2496,8 @@ whatsapp_support_team = Team(
         general_support_agent,
     ],
     mode=TeamMode.route,
+    respond_directly=True,
+    tool_call_limit=1,
     model=GROQ_ROUTING_MODEL,
     # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
