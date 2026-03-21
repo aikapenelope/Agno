@@ -43,7 +43,12 @@ from pydantic import BaseModel, Field
 from agno.agent import Agent
 from agno.approval.decorator import approval
 from agno.compression.manager import CompressionManager
-from agno.os.interfaces.agui import AGUI
+try:
+    from agno.os.interfaces.agui import AGUI
+
+    _agui_available = True
+except ImportError:
+    _agui_available = False
 from agno.os.interfaces.whatsapp.whatsapp import Whatsapp
 from agno.tools.decorator import tool
 from agno.db.sqlite import SqliteDb
@@ -2962,13 +2967,15 @@ registry = Registry(
 # Slack:    SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET (+ pip install slack-sdk)
 # Telegram: TELEGRAM_BOT_TOKEN (+ pip install 'agno[telegram]')
 
-_interfaces: list = [
-    # --- AG-UI (for CopilotKit / web frontend) ---
-    # Exposes NEXUS Master Team via AG-UI protocol.
-    # Connect any AG-UI frontend: CopilotKit, Agent UI, or custom React app.
-    # Endpoint: http://localhost:7777/agui
-    AGUI(team=nexus_master),
-]
+_interfaces: list = []
+
+# --- AG-UI (for CopilotKit / web frontend) ---
+# Exposes NEXUS Master Team via AG-UI protocol.
+# Requires: pip install ag-ui-protocol
+# Endpoint: POST http://localhost:7777/agui
+# Health check: GET http://localhost:7777/status
+if _agui_available:
+    _interfaces.append(AGUI(team=nexus_master))
 
 # --- WhatsApp ---
 if os.getenv("WHATSAPP_ACCESS_TOKEN"):

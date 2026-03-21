@@ -45,3 +45,6 @@ lancedb
 pylance
 tantivy
 voyageai
+
+# Frontend: AG-UI protocol for CopilotKit / web frontend
+ag-ui-protocol
