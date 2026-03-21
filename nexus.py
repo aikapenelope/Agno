@@ -2209,7 +2209,7 @@ nexus_master = Team(
         analytics_agent,
     ],
     mode=TeamMode.route,
-    model=TOOL_MODEL,  # MiniMax for precise routing (not Groq)
+    model=GROQ_ROUTING_MODEL,  # Groq for fast routing (~50ms vs ~2s with MiniMax)
     pre_hooks=_guardrails,
     determine_input_for_members=False,
     instructions=[

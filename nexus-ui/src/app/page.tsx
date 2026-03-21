@@ -55,7 +55,7 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("message", userMessage.content);
-      formData.append("stream", "false");
+      formData.append("stream", "true");
       formData.append("session_id", sessionId);
       formData.append("user_id", "nexus-ui-user");
 
@@ -68,24 +68,56 @@ export default function Home() {
         throw new Error(`HTTP ${response.status}: ${await response.text()}`);
       }
 
-      const data = await response.json();
-
-      const content =
-        typeof data.content === "string"
-          ? data.content
-          : data.content?.text ||
-            data.messages?.[data.messages.length - 1]?.content ||
-            JSON.stringify(data);
+      // Parse SSE stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
-        content: content,
-        agent: data.agent_name || data.model || "NEXUS",
+        content: "",
+        agent: "NEXUS",
         timestamp: new Date(),
       };
-
       setMessages((prev) => [...prev, assistantMessage]);
+      setLoading(false);
+
+      if (reader) {
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                const chunk =
+                  data.content ||
+                  data.text ||
+                  (typeof data === "string" ? data : "");
+                if (chunk) {
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last && last.id === assistantMessage.id) {
+                      last.content += chunk;
+                      if (data.agent_name) last.agent = data.agent_name;
+                    }
+                    return [...updated];
+                  });
+                }
+              } catch {
+                // Skip non-JSON SSE lines (event names, comments)
+              }
+            }
+          }
+        }
+      }
     } catch (error) {
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
