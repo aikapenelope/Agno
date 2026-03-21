@@ -726,6 +726,9 @@ _deep_search_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "deep-search")),
+            LocalSkills(str(SKILLS_DIR / "github-research")),
+            LocalSkills(str(SKILLS_DIR / "community-research")),
+            LocalSkills(str(SKILLS_DIR / "market-intelligence")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
