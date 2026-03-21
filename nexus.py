@@ -1170,17 +1170,24 @@ client_research_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
-# Deep Research System
+# Deep Research System v4
 # ---------------------------------------------------------------------------
-# Production-grade deep research: Planner → 3 parallel searchers (broadcast)
-# → Reflector → Synthesizer. Inspired by Anthropic's multi-agent research,
-# Exa/LangGraph patterns, and ACE context engineering principles.
+# Pattern follows Agno's official research pipeline (cookbook/gemini_3/20_workflow.py):
+# Parallel(3 scouts) → Analyst(synthesize) → Quality Gate → Report Writer → save
+#
+# Key design decisions:
+# - NO output_schema on synthesizer (MiniMax doesn't support native structured
+#   outputs; forcing JSON produces unreadable reports instead of markdown)
+# - NO redundant broadcast team (Parallel step handles parallelism directly)
+# - NO reflect loop (added complexity without value; quality gate is simpler)
+# - Skills loaded on scouts (MiniMax handles long context without hallucinating)
+# - Final step always produces a readable markdown report
 
 # --- Planner: decomposes a research query into targeted sub-queries ---
 _research_planner = Agent(
     name="Research Planner",
     role="Decompose research queries into targeted sub-queries",
-    model=GROQ_ROUTING_MODEL,
+    model=GROQ_ROUTING_MODEL,  # No tools needed, routing model is fine
     instructions=[
         "You are a research planner. Given a research topic, produce EXACTLY 3 sub-queries.",
         "",
@@ -1293,83 +1300,64 @@ _source_scout = Agent(
     compression_manager=_compression,
 )
 
-# --- Research team: runs 3 scouts in parallel via broadcast ---
-_research_team = Team(
-    name="Research Squad",
-    description="Three parallel researchers covering different angles",
-    mode=TeamMode.broadcast,
-    members=[_broad_scout, _data_scout, _source_scout],
-    model=GROQ_ROUTING_MODEL,
-    instructions=[
-        "Send the research query to ALL members simultaneously.",
-        "Return all their findings combined without modification.",
-    ],
-    show_members_responses=True,
-    markdown=True,
-)
+# --- Quality gate: stop early if research is too thin ---
+def _quality_gate(step_input: StepInput) -> StepOutput:
+    """Check that the analysis has enough substance to proceed."""
+    content = str(step_input.previous_step_content or "")
+    if len(content) < 200:
+        return StepOutput(
+            content="Quality gate failed: research too thin. Insufficient data to produce a report.",
+            stop=True,
+            success=False,
+        )
+    return StepOutput(content=content, success=True)
 
-# --- Reflector: evaluates if research is sufficient ---
-_research_reflector = Agent(
-    name="Research Reflector",
-    role="Evaluate research completeness and identify critical gaps",
-    model=REASONING_MODEL,
-    reasoning=True,
-    reasoning_min_steps=2,
-    reasoning_max_steps=4,
-    instructions=[
-        "You evaluate research findings for completeness.",
-        "",
-        "## Process",
-        "1. Read all findings from the research team",
-        "2. Check against the sufficiency criteria from the planner",
-        "3. Identify CRITICAL gaps (not nice-to-haves)",
-        "",
-        "## Output",
-        "ASSESSMENT: [SUFFICIENT or INSUFFICIENT]",
-        "COVERAGE: [what percentage of the topic is covered, roughly]",
-        "CRITICAL_GAPS: [list only gaps that would make the report misleading if missing]",
-        "ADDITIONAL_QUERIES: [if INSUFFICIENT, 1-2 specific queries to fill gaps. If SUFFICIENT, write NONE]",
-        "",
-        "## Rules",
-        "- Be strict: 70%+ coverage with no misleading gaps = SUFFICIENT",
-        "- Do NOT request more research just for completeness. Good enough is good enough.",
-        "- If the topic is niche and hard to find data on, lower your bar.",
-    ],
-    db=db,
-    markdown=True,
-)
-
-# --- Synthesizer: produces the final research report ---
+# --- Synthesizer: produces the final research report as readable markdown ---
+# NOTE: No output_schema. MiniMax doesn't support native structured outputs,
+# and forcing JSON mode produces {"executive_summary": "..."} instead of a
+# readable report. The skills teach the agent the correct report structure.
 _research_synthesizer = Agent(
     name="Research Synthesizer",
     role="Produce comprehensive research reports from collected findings",
     model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
     skills=_deep_synthesis_skills,
-    output_schema=ResearchReport,
-    use_json_mode=True,
     instructions=[
-        "You synthesize research findings into a comprehensive report.",
+        "You synthesize research findings into a comprehensive markdown report.",
         "",
         "## Process",
-        "1. Read ALL findings from the research team and reflector assessment",
+        "1. Read ALL findings from the research scouts",
         "2. Organize by theme, not by source",
-        "3. Produce a ResearchReport with:",
-        "   - executive_summary: 2-3 sentences, the key takeaway",
-        "   - key_findings: specific facts with numbers and source URLs",
-        "   - recommendations: actionable next steps based on findings",
-        "   - sources: all URLs cited",
-        "   - confidence: high/medium/low based on source quality and coverage",
+        "3. Produce a well-structured markdown report with:",
         "",
-        "4. Save the report as a markdown file using save_file:",
-        "   Filename: research-<topic-slug>-<date>.md",
-        "   This makes it searchable in the knowledge base for future queries.",
+        "## Report Structure (follow exactly)",
+        "### Executive Summary",
+        "2-3 sentences. The key takeaway with the most important number.",
+        "",
+        "### Key Findings",
+        "5-8 bullet points. Each with a specific fact, source URL, and analysis.",
+        "Format: **[Finding]** ([Source](URL)) — [What it means]",
+        "",
+        "### Analysis",
+        "2-3 paragraphs connecting findings into a narrative.",
+        "What patterns emerge? What contradictions? What's the 'so what'?",
+        "",
+        "### Gaps and Uncertainties",
+        "What data was unavailable? What claims have only one source?",
+        "",
+        "### Recommendations",
+        "3-5 specific, actionable next steps tied to findings.",
+        "",
+        "### Sources",
+        "All URLs cited, deduplicated.",
         "",
         "## Rules",
+        "- Write in markdown, NOT JSON. The user reads this directly.",
         "- Every finding must have a source URL. No unsourced claims.",
         "- If data conflicts between sources, note the conflict.",
         "- Write in Spanish if the topic is Latam-specific, English otherwise.",
-        "- Be analytical, not descriptive. Say what it MEANS, not just what it IS.",
+        "- Be analytical: say what it MEANS, not just what it IS.",
+        "- Save the report using save_file: research-<topic-slug>-<date>.md",
     ],
     db=db,
     learning=_learning,
@@ -1377,57 +1365,11 @@ _research_synthesizer = Agent(
     compression_manager=_compression,
 )
 
-# --- Deep Research Workflow v3 ---
-# Pattern: Plan → Parallel(3 scouts) → Loop(reflect → search if needed)
-#        → Synthesize → Loop(quality critic → revise if score < 7)
-# v3 adds iterative quality refinement after synthesis.
-
-def _check_sufficiency(step_input: StepInput) -> StepOutput:
-    """Check if research is sufficient based on reflector output."""
-    content = step_input.previous_step_content or ""
-    is_sufficient = "SUFFICIENT" in content.upper() and "INSUFFICIENT" not in content.upper()
-    return StepOutput(
-        content=content,
-        stop=is_sufficient,  # Stop the loop if sufficient
-    )
-
-# --- Quality Critic: scores the final report and provides feedback ---
-_research_critic = Agent(
-    name="Research Critic",
-    role="Score research reports for quality and provide improvement feedback",
-    model=REASONING_MODEL,
-    reasoning=True,
-    reasoning_min_steps=2,
-    reasoning_max_steps=4,
-    instructions=[
-        "You evaluate research reports for quality and completeness.",
-        "",
-        "## Scoring Criteria (each 0-10)",
-        "1. EVIDENCE: Are claims backed by specific data and source URLs?",
-        "2. ANALYSIS: Does it explain what findings MEAN, not just what they ARE?",
-        "3. STRUCTURE: Is it well-organized with clear executive summary?",
-        "4. ACTIONABILITY: Are recommendations specific and implementable?",
-        "5. SOURCES: Are sources diverse, credible, and properly cited?",
-        "",
-        "## Output format (follow exactly)",
-        "SCORE: [average of 5 criteria, 0-10]",
-        "EVIDENCE: [X/10] - [one-line justification]",
-        "ANALYSIS: [X/10] - [one-line justification]",
-        "STRUCTURE: [X/10] - [one-line justification]",
-        "ACTIONABILITY: [X/10] - [one-line justification]",
-        "SOURCES: [X/10] - [one-line justification]",
-        "VERDICT: [PASS if SCORE >= 7, REVISE if SCORE < 7]",
-        "FEEDBACK: [if REVISE, 2-3 specific improvements needed]",
-    ],
-    db=db,
-    markdown=True,
-)
-
 deep_research_workflow = Workflow(
     name="deep-research",
     description=(
-        "Production deep research v3: plan → 3 parallel searchers → "
-        "reflection loop → synthesis → quality review → final polished report."
+        "Production deep research v4: plan → 3 parallel searchers → "
+        "quality gate → synthesis report (readable markdown)."
     ),
     db=SqliteDb(
         session_table="deep_research_session",
@@ -1436,28 +1378,16 @@ deep_research_workflow = Workflow(
     steps=[
         # Phase 1: Decompose query into sub-queries
         Step(name="Plan", agent=_research_planner),
-        # Phase 2: 3 searchers in parallel (native Parallel, not broadcast team)
+        # Phase 2: 3 searchers in parallel
         Parallel(
             Step(name="Broad Search", agent=_broad_scout, skip_on_failure=True),
             Step(name="Data Search", agent=_data_scout, skip_on_failure=True),
             Step(name="Source Search", agent=_source_scout, skip_on_failure=True),
             name="Parallel Research",
         ),
-        # Phase 3: Reflection loop — evaluate, optionally search more (max 2 rounds)
-        Loop(
-            steps=[
-                Step(name="Reflect", agent=_research_reflector),
-                Step(name="Check Sufficiency", executor=_check_sufficiency),
-            ],
-            max_iterations=2,
-            forward_iteration_output=True,
-        ),
-        # Phase 4: Synthesize into structured report + save to knowledge/
-        Step(name="Synthesize", agent=_research_synthesizer),
-        # Phase 5: Quality scoring — critic scores the report
-        Step(name="Quality Review", agent=_research_critic),
-        # Phase 6: Final synthesis — incorporates critic feedback into polished report
-        # This is always the last step, so the user sees the final report (not the score).
+        # Phase 3: Quality gate — stop early if research is too thin
+        Step(name="Quality Gate", executor=_quality_gate),
+        # Phase 4: Synthesize into readable markdown report + save to knowledge/
         Step(name="Final Report", agent=_research_synthesizer),
     ],
 )
