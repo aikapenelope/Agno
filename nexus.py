@@ -347,22 +347,23 @@ GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 # Uses TOOL_MODEL (MiniMax M2.7) for extraction -- EntityMemory needs reliable
 # tool calling (create_entity, add_fact, add_event) which Groq cannot provide.
 # All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
+
+# Minimal learning: only learned_knowledge (patterns, solutions).
+# Used by: research agents, content agents, scouts — stateless agents that
+# benefit from remembering patterns but don't need to track user profiles.
+# Matches Agno's official Pal/Dash pattern (cookbook/01_demo).
 _learning = LearningMachine(
-    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling, not json_object)
+    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling)
     knowledge=learnings_knowledge,
-    # AGENTIC mode: agent decides when to update (1 tool call when relevant)
-    # ALWAYS mode caused 100+ update_profile calls per request = 784K tokens
-    user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
-    user_memory=UserMemoryConfig(mode=LearningMode.AGENTIC),
-    entity_memory=EntityMemoryConfig(mode=LearningMode.AGENTIC),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
 )
 
-# Learning variant with decision logging for support/billing agents.
-# DecisionLog records WHY the agent made each decision (audit trail).
-# Only on agents where compliance/audit matters — not on every agent.
-_learning_with_audit = LearningMachine(
-    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling, not json_object)
+# Full learning: profile + memory + entities + knowledge + decision log.
+# Used by: support agents, Pal, Onboarding — agents that need to remember
+# user preferences, track entities (clients, products), and audit decisions.
+# Matches Agno's support_agent pattern (cookbook/08_learning/07_patterns).
+_learning_full = LearningMachine(
+    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling)
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
     user_memory=UserMemoryConfig(mode=LearningMode.AGENTIC),
@@ -1843,7 +1844,7 @@ dash = Agent(
         "- Always specify the time period for any metric.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -1922,7 +1923,7 @@ pal = Agent(
         "- Research ('look up X and save it'): web search, summarize, save to notes",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=10,
     add_datetime_to_context=True,
@@ -2004,7 +2005,7 @@ onboarding_agent = Agent(
         "- Write in Spanish (Latin America neutral)",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=10,
     add_datetime_to_context=True,
@@ -2189,7 +2190,7 @@ invoice_agent = Agent(
         "- Prices are in USD unless client specifies local currency",
     ],
     db=db,
-    learning=_learning_with_audit,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2321,7 +2322,7 @@ whabi_support_agent = Agent(
         "- Use formal 'usted' on first contact, switch to 'tu' only if client does first",
     ],
     db=db,
-    learning=_learning_with_audit,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2366,7 +2367,7 @@ docflow_support_agent = Agent(
         "- Be extra careful with PII -- the guardrails will catch most, but stay vigilant",
     ],
     db=db,
-    learning=_learning_with_audit,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2411,7 +2412,7 @@ aurora_support_agent = Agent(
         "- Guide users step-by-step, don't assume technical knowledge",
     ],
     db=db,
-    learning=_learning_with_audit,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2456,7 +2457,7 @@ general_support_agent = Agent(
         "- Never make up pricing -- if unsure, say you'll confirm and follow up",
     ],
     db=db,
-    learning=_learning_with_audit,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
