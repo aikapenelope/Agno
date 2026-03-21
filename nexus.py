@@ -320,7 +320,8 @@ TOOL_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 
 # M2.7 Highspeed: identical results, ~100 tps. Best for streaming/fast UX.
 # $0.60/$2.40 per 1M tokens (2x standard, but 2x faster).
-FAST_MODEL = OpenAIChat(id="MiniMax-M2.7-highspeed", **_minimax_kwargs)
+# NOTE: Requires highspeed plan on MiniMax. Falls back to standard if unavailable.
+FAST_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 
 # Reasoning model: M2.7 standard for deep analysis (same model, used where
 # reasoning=True and no tools are needed). Cheaper than highspeed.
@@ -1217,7 +1218,7 @@ _broad_scout = Agent(
     name="Broad Scout",
     role="General web search for current information",
     model=TOOL_MODEL,
-    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=5)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
@@ -1246,7 +1247,7 @@ _data_scout = Agent(
     name="Data Scout",
     role="Search for statistics, market data, and numbers",
     model=TOOL_MODEL,
-    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=5)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
@@ -1275,7 +1276,7 @@ _source_scout = Agent(
     name="Source Scout",
     role="Find primary sources, case studies, and key players",
     model=TOOL_MODEL,
-    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=5)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
