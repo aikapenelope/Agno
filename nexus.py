@@ -2372,6 +2372,7 @@ nexus_master = Team(
         content_team,
         product_dev_team,
         creative_studio,
+        marketing_latam,
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
@@ -2402,6 +2403,7 @@ nexus_master = Team(
         "- Content production (scripts, storyboards, audits) → Content Factory",
         "- Feature analysis, product specs, UX feedback → Product Development",
         "- Image generation, media creation, storyboards → Creative Studio",
+        "- Marketing Latam, copy en español, SEO, redes sociales → Marketing Latam",
         "",
         "## When unsure:",
         "- Money/pricing/payment → Invoice Agent",
@@ -3017,6 +3019,170 @@ creative_studio = Team(
     markdown=True,
 )
 
+# ---------------------------------------------------------------------------
+# Marketing Latam Team
+# ---------------------------------------------------------------------------
+# Coordinate mode: leader orchestrates between copywriter, SEO strategist,
+# and social media planner. Iterates until the content is optimized for
+# Latam Spanish audiences, SEO, and platform-specific formats.
+
+_latam_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "copywriting-es")),
+            LocalSkills(str(SKILLS_DIR / "seo-geo")),
+            LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "video-hooks")),
+            LocalSkills(str(SKILLS_DIR / "latam-research")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_copywriter_es = Agent(
+    name="Copywriter ES",
+    role="Write persuasive copy in Latam Spanish for all channels",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=3,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_latam_skills,
+    instructions=[
+        "Eres un copywriter experto en español latinoamericano.",
+        "",
+        "## Lo que haces",
+        "- Escribes copy persuasivo para redes sociales, email, y web",
+        "- Usas frameworks: PAS, AIDA, BAB, storytelling",
+        "- Adaptas el tono al canal: profesional (LinkedIn), casual (IG), directo (WhatsApp)",
+        "",
+        "## Reglas de estilo",
+        "- Español neutro latinoamericano (no España)",
+        "- Tuteo natural, no forzado",
+        "- Frases cortas, parrafos de 1-2 lineas",
+        "- Emojis solo en redes sociales, nunca en email formal",
+        "- CTA claro en cada pieza",
+        "",
+        "## Output",
+        "Siempre entrega: headline, body, CTA, y variante alternativa.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_seo_strategist = Agent(
+    name="SEO Strategist",
+    role="Optimize content for Google SEO and AI citation (GEO) in Spanish",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_latam_skills,
+    instructions=[
+        "Eres un estratega SEO/GEO para mercados latinoamericanos.",
+        "",
+        "## Lo que haces",
+        "- Investigas keywords en español con volumen real",
+        "- Optimizas contenido para Google Y para citacion en AI (GEO)",
+        "- Analizas competencia en SERPs hispanohablantes",
+        "- Recomiendas estructura de headings, meta descriptions, schema markup",
+        "",
+        "## GEO (Generative Engine Optimization)",
+        "- Incluir datos citables (estadisticas, fechas, fuentes)",
+        "- Responder preguntas directamente en los primeros parrafos",
+        "- Usar listas y tablas que los LLMs puedan extraer facilmente",
+        "",
+        "## Output",
+        "Siempre entrega: keywords primarias/secundarias, estructura de headings,",
+        "meta title, meta description, y recomendaciones de optimizacion.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_social_media_planner = Agent(
+    name="Social Media Planner",
+    role="Plan social media strategy and content calendar for Latam audiences",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=3,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_latam_skills,
+    instructions=[
+        "Eres un social media planner para audiencias latinoamericanas.",
+        "",
+        "## Lo que haces",
+        "- Planificas calendarios de contenido semanal/mensual",
+        "- Defines pilares de contenido por plataforma",
+        "- Recomiendas horarios de publicacion para Latam",
+        "- Analizas tendencias regionales y hashtags",
+        "",
+        "## Plataformas",
+        "- Instagram: reels, carruseles, stories (audiencia principal)",
+        "- TikTok: videos cortos, trends, duets",
+        "- LinkedIn: thought leadership, casos de estudio",
+        "- WhatsApp: broadcasts, listas de difusion",
+        "",
+        "## Output",
+        "Siempre entrega: calendario semanal con fecha, plataforma, formato,",
+        "tema, hook, y CTA para cada publicacion.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+marketing_latam = Team(
+    id="marketing-latam",
+    name="Marketing Latam",
+    description=(
+        "Marketing team for Latin American audiences: copywriting in Spanish, "
+        "SEO/GEO optimization, and social media planning. Uses coordinate mode "
+        "for iterative refinement between Copywriter, SEO Strategist, and Social Media Planner."
+    ),
+    members=[_copywriter_es, _seo_strategist, _social_media_planner],
+    mode=TeamMode.coordinate,
+    model=TOOL_MODEL,
+    max_iterations=5,
+    show_members_responses=False,
+    instructions=[
+        "Lideras el equipo de Marketing Latam para AikaLabs.",
+        "",
+        "## Proceso",
+        "1. Pide al Social Media Planner que defina la estrategia y calendario",
+        "2. Pide al Copywriter ES que escriba el copy para cada pieza",
+        "3. Pide al SEO Strategist que optimice para buscadores y AI",
+        "4. Sintetiza todo en un plan de marketing listo para ejecutar",
+        "",
+        "## Contexto de productos",
+        "- Whabi: CRM de WhatsApp Business (leads, campanas, mensajeria)",
+        "- Docflow: Sistema EHR (historias clinicas, documentos, compliance)",
+        "- Aurora: PWA voice-first (Nuxt 3, Clerk, Groq Whisper)",
+        "",
+        "## Audiencia",
+        "Profesionales y empresas en Latinoamerica. Tono profesional pero cercano.",
+    ],
+    db=db,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
 
 def _select_media_pipeline(step_input: StepInput) -> list:
     """Route to image or video pipeline based on input content."""
@@ -3298,8 +3464,11 @@ agent_os = AgentOS(
         _product_manager,
         _ux_researcher,
         _technical_writer,
+        _copywriter_es,
+        _seo_strategist,
+        _social_media_planner,
     ],
-    teams=[cerebro, content_team, whatsapp_support_team, nexus_master, product_dev_team, creative_studio],
+    teams=[cerebro, content_team, whatsapp_support_team, nexus_master, product_dev_team, creative_studio, marketing_latam],
     workflows=[
         client_research_workflow,
         content_production_workflow,
