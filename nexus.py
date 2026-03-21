@@ -686,7 +686,7 @@ cerebro = Team(
     mode=TeamMode.route,
     respond_directly=True,
     tool_call_limit=1,
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,  # MiniMax for precise routing
     knowledge=knowledge_base,
     # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
@@ -1084,7 +1084,7 @@ content_team = Team(
     respond_directly=True,
     tool_call_limit=1,
     members=[trend_scout, scriptwriter, analytics_agent],
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,  # MiniMax for precise routing
     # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
     instructions=[
@@ -2478,7 +2478,7 @@ whatsapp_support_team = Team(
     mode=TeamMode.route,
     respond_directly=True,
     tool_call_limit=1,
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,  # MiniMax for precise routing
     # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
     instructions=[
@@ -2565,7 +2565,7 @@ _linkedin_post_agent = Agent(
 _social_auditor = Agent(
     name="Social Media Auditor",
     role="Audit social media posts for quality and platform compliance",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,  # MiniMax for precise routing
     instructions=[
         "You audit social media posts for quality.",
         "",
@@ -2810,7 +2810,7 @@ _video_generator = Agent(
 _media_describer = Agent(
     name="Media Describer",
     role="Evaluate and describe generated media concepts",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,  # MiniMax for precise routing
     instructions=[
         "You evaluate media concepts (image prompts or video storyboards).",
         "Describe how the final result would look and feel.",
