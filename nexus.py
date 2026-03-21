@@ -387,7 +387,10 @@ _compression = CompressionManager(
 # Prompt injection blocks jailbreak attempts and instruction overrides.
 
 _guardrails = [
-    PIIDetectionGuardrail(),
+    PIIDetectionGuardrail(
+        mask_pii=True,           # Mask instead of blocking (fewer false positives)
+        enable_phone_check=False, # Too many false positives (any 10-digit number triggers)
+    ),
     PromptInjectionGuardrail(),
 ]
 
@@ -2217,7 +2220,8 @@ nexus_master = Team(
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
-    pre_hooks=_guardrails,
+    # No pre_hooks on team leader -- guardrails run on individual member agents.
+    # PII guardrail on the leader blocks messages before routing, causing errors.
     determine_input_for_members=False,
     instructions=[
         "You are NEXUS, the master orchestrator for AikaLabs.",
