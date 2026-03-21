@@ -1205,8 +1205,9 @@ _research_planner = Agent(
 _broad_scout = Agent(
     name="Broad Scout",
     role="General web search for current information",
-    model=GROQ_ROUTING_MODEL,
+    model=GROQ_TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=4,
     retries=0,
     skills=_deep_search_skills,
     instructions=[
@@ -1233,8 +1234,9 @@ _broad_scout = Agent(
 _data_scout = Agent(
     name="Data Scout",
     role="Search for statistics, market data, and numbers",
-    model=GROQ_ROUTING_MODEL,
+    model=GROQ_TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=4,
     retries=0,
     skills=_deep_search_skills,
     instructions=[
@@ -1261,8 +1263,9 @@ _data_scout = Agent(
 _source_scout = Agent(
     name="Source Scout",
     role="Find primary sources, case studies, and key players",
-    model=GROQ_ROUTING_MODEL,
+    model=GROQ_TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=4,
     retries=0,
     skills=_deep_search_skills,
     instructions=[
