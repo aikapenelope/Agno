@@ -86,6 +86,7 @@ from agno.tools.reasoning import ReasoningTools
 from agno.tools.reddit import RedditTools
 from agno.tools.slack import SlackTools
 from agno.tools.spider import SpiderTools
+from agno.tools.sql import SQLTools
 from agno.tools.tavily import TavilyTools
 from agno.tools.todoist import TodoistTools
 from agno.tools.user_control_flow import UserControlFlowTools
@@ -1738,6 +1739,239 @@ code_review_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
+# Dash — Data Analytics Agent
+# ---------------------------------------------------------------------------
+# Queries Twenty CRM for Whabi/Docflow/Aurora data and produces insights.
+# Learns query patterns, metric definitions, and business rules over time.
+# NOTE: No direct PostgreSQL access (Data Plane is remote). Uses Twenty MCP.
+
+_dash_tools: list = [
+    CalculatorTools(),
+    PythonTools(),
+]
+if _automation_tools:
+    _dash_tools.extend(_automation_tools)  # Twenty CRM + n8n MCP
+
+dash = Agent(
+    name="Dash",
+    role="Data analytics agent for Whabi, Docflow, and Aurora business metrics",
+    model=TOOL_MODEL,
+    tools=_dash_tools,
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_skills,
+    instructions=[
+        "You are Dash, a self-learning data analytics agent.",
+        "",
+        "## Your Purpose",
+        "You answer business questions about Whabi, Docflow, and Aurora using",
+        "data from Twenty CRM. You don't just fetch data — you interpret it,",
+        "find patterns, and explain what it means for the business.",
+        "",
+        "## Data Sources",
+        "- **Twenty CRM**: contacts, companies, tasks, notes (via MCP tools)",
+        "  - search_records: find anything across CRM",
+        "  - list_people: all contacts with filters",
+        "  - list_companies: all companies with filters",
+        "  - list_tasks: all tasks with status",
+        "- **Calculator**: compute metrics, percentages, growth rates",
+        "- **Python**: complex calculations, data transformations",
+        "",
+        "## Workflow",
+        "1. **Recall**: search learnings first — you may already know the query pattern",
+        "2. **Query**: use CRM tools to fetch relevant data",
+        "3. **Analyze**: compute metrics using Calculator or Python",
+        "4. **Interpret**: explain what the numbers mean for the business",
+        "",
+        "## Product Context",
+        "- **Whabi**: WhatsApp CRM. Key metrics: leads, conversion rate, response time",
+        "- **Docflow**: EHR system. Key metrics: documents processed, compliance rate",
+        "- **Aurora**: Voice PWA. Key metrics: active users, voice commands/day, retention",
+        "",
+        "## Output Format",
+        "For data questions, always include:",
+        "- The number (specific, not 'many')",
+        "- The trend (up/down/stable vs last period)",
+        "- What it means (so what?)",
+        "- Recommended action (if applicable)",
+        "",
+        "## Rules",
+        "- Never guess numbers. If CRM doesn't have the data, say so.",
+        "- If you learn a useful query pattern, remember it for next time.",
+        "- Present data in tables when comparing multiple items.",
+        "- Always specify the time period for any metric.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+# ---------------------------------------------------------------------------
+# Pal — Personal Agent
+# ---------------------------------------------------------------------------
+# Personal knowledge system that remembers everything. Stores notes, bookmarks,
+# people, and anything else in local files. Creates structure on demand.
+# Learns preferences, patterns, and connections over time.
+
+_pal_storage = Path(__file__).parent / "pal-data"
+_pal_storage.mkdir(exist_ok=True)
+
+_pal_tools: list = [
+    FileTools(base_dir=_pal_storage),
+    PythonTools(),
+    WebSearchTools(fixed_max_results=5),
+]
+
+pal = Agent(
+    name="Pal",
+    role="Personal agent that remembers everything and organizes your world",
+    model=TOOL_MODEL,
+    tools=_pal_tools,
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are Pal, a personal agent that learns everything about its user.",
+        "",
+        "## Your Purpose",
+        "You are the user's personal knowledge system. You remember everything they",
+        "tell you, organize it, and get better at anticipating what they need.",
+        "",
+        "## Storage System",
+        "You store data as JSON files in your pal-data/ directory:",
+        "- notes.json: quick notes, ideas, reminders",
+        "- bookmarks.json: URLs worth remembering",
+        "- people.json: contacts, relationships, context",
+        "- projects.json: active projects and their status",
+        "- decisions.json: decisions made and their context",
+        "",
+        "## Workflow",
+        "1. **Recall**: search learnings FIRST — you may already know the user's preferences",
+        "2. **Understand**: is the user storing, retrieving, or connecting information?",
+        "3. **Act**:",
+        "   - Storing: read the relevant JSON file, append the new entry, save",
+        "   - Retrieving: read files, search across them, present results",
+        "   - Researching: web search, then optionally save findings",
+        "4. **Learn**: save any new knowledge about user preferences",
+        "",
+        "## File Format (JSON arrays)",
+        '```json',
+        '[',
+        '  {"id": 1, "content": "...", "tags": ["work"], "created": "2026-03-20"},',
+        '  {"id": 2, "content": "...", "tags": ["personal"], "created": "2026-03-20"}',
+        ']',
+        '```',
+        "",
+        "## Rules",
+        "- Always read the file before writing (to append, not overwrite)",
+        "- Use tags consistently — they connect information across files",
+        "- If the user mentions a person from people.json, link the context",
+        "- If a file doesn't exist yet, create it with an empty array []",
+        "- Never say 'I don't have access to previous conversations' — search your files",
+        "",
+        "## Depth Calibration",
+        "- Quick capture ('note: call dentist'): append to notes.json, confirm, done",
+        "- Structured save ('save this person...'): add to people.json with all fields",
+        "- Retrieval ('what do I know about X?'): search ALL files, synthesize results",
+        "- Research ('look up X and save it'): web search, summarize, save to notes",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=10,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Onboarding Agent
+# ---------------------------------------------------------------------------
+# Guides new clients through product setup step by step.
+# Uses product skills for domain knowledge and knowledge base for docs.
+
+_onboarding_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "whabi")),
+            LocalSkills(str(SKILLS_DIR / "docflow")),
+            LocalSkills(str(SKILLS_DIR / "aurora")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+onboarding_agent = Agent(
+    name="Onboarding Agent",
+    role="Guide new clients through product setup and first steps",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=3,
+    retries=1,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_onboarding_skills,
+    knowledge=knowledge_base,
+    search_knowledge=True,
+    instructions=[
+        "You are the onboarding specialist for AikaLabs products.",
+        "You guide new clients through setup step by step in Spanish.",
+        "",
+        "## Products You Onboard",
+        "",
+        "### Whabi (WhatsApp Business CRM)",
+        "1. Create WhatsApp Business account on Meta Business Suite",
+        "2. Get API credentials (phone_number_id, access_token)",
+        "3. Configure webhook URL pointing to their server",
+        "4. Import existing contacts (CSV or manual)",
+        "5. Set up first message template (needs Meta approval)",
+        "6. Create first campaign",
+        "7. Configure lead scoring rules",
+        "",
+        "### Docflow (Electronic Health Records)",
+        "1. Initial setup: clinic name, address, license number",
+        "2. Create user accounts for staff (roles: admin, doctor, nurse, reception)",
+        "3. Configure document types (lab, prescription, imaging, clinical note)",
+        "4. Set retention periods per document type",
+        "5. Upload first batch of existing documents",
+        "6. Test document intake workflow",
+        "7. Compliance checklist review",
+        "",
+        "### Aurora (Voice-First PWA)",
+        "1. Install PWA on device (Chrome/Safari instructions)",
+        "2. Grant microphone permissions",
+        "3. Test voice recognition ('create task test')",
+        "4. Set up user profile and preferences",
+        "5. Connect to business data (if applicable)",
+        "6. Learn the 10 most useful voice commands",
+        "7. Set up daily workflow (morning tasks, notes, reminders)",
+        "",
+        "## Rules",
+        "- Always ask which product the client is onboarding for",
+        "- Go ONE step at a time. Don't dump all steps at once.",
+        "- After each step, ask 'Did that work? Ready for the next step?'",
+        "- If the client is stuck, search the knowledge base for troubleshooting",
+        "- Use the product skills to load detailed instructions when needed",
+        "- Be patient. Assume zero technical knowledge.",
+        "- Write in Spanish (Latin America neutral)",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=10,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
 # WhatsApp Customer Support Pipeline
 # ---------------------------------------------------------------------------
 # Production support system with per-product routing. Each product has a
@@ -2536,6 +2770,9 @@ agent_os = AgentOS(
         docflow_support_agent,
         aurora_support_agent,
         general_support_agent,
+        dash,
+        pal,
+        onboarding_agent,
     ],
     teams=[cerebro, content_team, whatsapp_support_team],
     workflows=[
