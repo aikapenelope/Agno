@@ -503,9 +503,9 @@ research_agent = Agent(
     num_history_runs=3,
     add_datetime_to_context=True,
     markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=GROQ_FAST_MODEL,
+    # followups disabled: Groq requires 'json' in prompt for json_object mode
+    # and generates invalid tool calls. Re-enable when using a model that
+    # supports json_object without the 'json' keyword requirement.
     compression_manager=_compression,
 )
 
@@ -540,9 +540,9 @@ knowledge_agent = Agent(
     add_datetime_to_context=True,
     update_memory_on_run=True,
     markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=GROQ_FAST_MODEL,
+    # followups disabled: Groq requires 'json' in prompt for json_object mode
+    # and generates invalid tool calls. Re-enable when using a model that
+    # supports json_object without the 'json' keyword requirement.
 )
 
 # ---------------------------------------------------------------------------
@@ -664,9 +664,9 @@ automation_agent = Agent(
     num_history_runs=3,
     add_datetime_to_context=True,
     markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=GROQ_FAST_MODEL,
+    # followups disabled: Groq requires 'json' in prompt for json_object mode
+    # and generates invalid tool calls. Re-enable when using a model that
+    # supports json_object without the 'json' keyword requirement.
     compression_manager=_compression,
 )
 
@@ -701,9 +701,9 @@ cerebro = Team(
     show_members_responses=True,
     add_datetime_to_context=False,
     markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=GROQ_FAST_MODEL,
+    # followups disabled: Groq requires 'json' in prompt for json_object mode
+    # and generates invalid tool calls. Re-enable when using a model that
+    # supports json_object without the 'json' keyword requirement.
 )
 
 # ---------------------------------------------------------------------------
@@ -1092,9 +1092,9 @@ content_team = Team(
     show_members_responses=True,
     add_datetime_to_context=False,
     markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=GROQ_FAST_MODEL,
+    # followups disabled: Groq requires 'json' in prompt for json_object mode
+    # and generates invalid tool calls. Re-enable when using a model that
+    # supports json_object without the 'json' keyword requirement.
 )
 
 # ---------------------------------------------------------------------------
@@ -2209,7 +2209,7 @@ nexus_master = Team(
         analytics_agent,
     ],
     mode=TeamMode.route,
-    model=TOOL_MODEL,  # MiniMax for precise routing (not Groq)
+    model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
     pre_hooks=_guardrails,
     determine_input_for_members=False,
     instructions=[
@@ -2248,9 +2248,9 @@ nexus_master = Team(
     show_members_responses=True,
     add_datetime_to_context=True,
     markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=GROQ_FAST_MODEL,
+    # followups disabled: Groq requires 'json' in prompt for json_object mode
+    # and generates invalid tool calls. Re-enable when using a model that
+    # supports json_object without the 'json' keyword requirement.
 )
 
 # ---------------------------------------------------------------------------
