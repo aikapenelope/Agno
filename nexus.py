@@ -697,6 +697,7 @@ _trend_scout_skills = (
         loaders=[
             LocalSkills(str(SKILLS_DIR / "content-research")),
             LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "video-hooks")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -709,6 +710,8 @@ _scriptwriter_skills = (
         loaders=[
             LocalSkills(str(SKILLS_DIR / "content-strategy")),
             LocalSkills(str(SKILLS_DIR / "remotion-video")),
+            LocalSkills(str(SKILLS_DIR / "copywriting-es")),
+            LocalSkills(str(SKILLS_DIR / "video-hooks")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -878,6 +881,8 @@ _whabi_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "whabi")),
+            LocalSkills(str(SKILLS_DIR / "whatsapp-business-api")),
+            LocalSkills(str(SKILLS_DIR / "crm-patterns")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -889,6 +894,7 @@ _docflow_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "docflow")),
+            LocalSkills(str(SKILLS_DIR / "hipaa-compliance")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -900,6 +906,7 @@ _aurora_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "aurora")),
+            LocalSkills(str(SKILLS_DIR / "pwa-troubleshooting")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -1748,6 +1755,18 @@ code_review_agent = Agent(
 # Learns query patterns, metric definitions, and business rules over time.
 # NOTE: No direct PostgreSQL access (Data Plane is remote). Uses Twenty MCP.
 
+_dash_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+            LocalSkills(str(SKILLS_DIR / "competitive-analysis")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
 _dash_tools: list = [
     CalculatorTools(),
     PythonTools(),
@@ -1764,7 +1783,7 @@ dash = Agent(
     retries=1,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
-    skills=_skills,
+    skills=_dash_skills,
     instructions=[
         "You are Dash, a self-learning data analytics agent.",
         "",
