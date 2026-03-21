@@ -43,6 +43,12 @@ from pydantic import BaseModel, Field
 from agno.agent import Agent
 from agno.approval.decorator import approval
 from agno.compression.manager import CompressionManager
+try:
+    from agno.os.interfaces.agui import AGUI
+
+    _agui_available = True
+except ImportError:
+    _agui_available = False
 from agno.os.interfaces.whatsapp.whatsapp import Whatsapp
 from agno.tools.decorator import tool
 from agno.db.sqlite import SqliteDb
@@ -50,6 +56,7 @@ from agno.eval.base import BaseEval
 from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from agno.learn.machine import LearningMachine
 from agno.learn import (
+    DecisionLogConfig,
     LearnedKnowledgeConfig,
     LearningMode,
     UserProfileConfig,
@@ -347,6 +354,19 @@ _learning = LearningMachine(
     user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
     entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
+)
+
+# Learning variant with decision logging for support/billing agents.
+# DecisionLog records WHY the agent made each decision (audit trail).
+# Only on agents where compliance/audit matters — not on every agent.
+_learning_with_audit = LearningMachine(
+    model=TOOL_MODEL,
+    knowledge=learnings_knowledge,
+    user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
+    entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
+    learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
+    decision_log=DecisionLogConfig(mode=LearningMode.ALWAYS),
 )
 
 # --- Context Compression ---
@@ -1888,6 +1908,7 @@ pal = Agent(
     num_history_runs=10,
     add_datetime_to_context=True,
     markdown=True,
+    enable_agentic_memory=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -2149,7 +2170,7 @@ invoice_agent = Agent(
         "- Prices are in USD unless client specifies local currency",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_with_audit,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2277,11 +2298,12 @@ whabi_support_agent = Agent(
         "- Use formal 'usted' on first contact, switch to 'tu' only if client does first",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_with_audit,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
+    enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2320,11 +2342,12 @@ docflow_support_agent = Agent(
         "- Be extra careful with PII -- the guardrails will catch most, but stay vigilant",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_with_audit,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
+    enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2363,11 +2386,12 @@ aurora_support_agent = Agent(
         "- Guide users step-by-step, don't assume technical knowledge",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_with_audit,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
+    enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2406,11 +2430,12 @@ general_support_agent = Agent(
         "- Never make up pricing -- if unsure, say you'll confirm and follow up",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_with_audit,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
+    enable_agentic_memory=True,
 )
 
 # --- WhatsApp Support Team (routes to product-specific agents) ---
@@ -2943,6 +2968,14 @@ registry = Registry(
 # Telegram: TELEGRAM_BOT_TOKEN (+ pip install 'agno[telegram]')
 
 _interfaces: list = []
+
+# --- AG-UI (for CopilotKit / web frontend) ---
+# Exposes NEXUS Master Team via AG-UI protocol.
+# Requires: pip install ag-ui-protocol
+# Endpoint: POST http://localhost:7777/agui
+# Health check: GET http://localhost:7777/status
+if _agui_available:
+    _interfaces.append(AGUI(team=nexus_master))
 
 # --- WhatsApp ---
 if os.getenv("WHATSAPP_ACCESS_TOKEN"):
