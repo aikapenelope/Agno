@@ -1171,72 +1171,104 @@ client_research_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
-# Deep Research System v4
+# Deep Research System v5
 # ---------------------------------------------------------------------------
-# Pattern follows Agno's official research pipeline (cookbook/gemini_3/20_workflow.py):
-# Parallel(3 scouts) → Analyst(synthesize) → Quality Gate → Report Writer → save
+# Pattern: Smart Planner → Parallel(3 specialized scouts) → Quality Gate → Synthesizer
 #
-# Key design decisions:
-# - NO output_schema on synthesizer (MiniMax doesn't support native structured
-#   outputs; forcing JSON produces unreadable reports instead of markdown)
-# - NO redundant broadcast team (Parallel step handles parallelism directly)
-# - NO reflect loop (added complexity without value; quality gate is simpler)
-# - Skills loaded on scouts (MiniMax handles long context without hallucinating)
-# - Final step always produces a readable markdown report
+# v5 improvements over v4:
+# - Planner generates a full execution plan (not just queries) with site: filters,
+#   language strategy, and tool assignments per scout
+# - Scouts have richer instructions that follow the planner's strategy
+# - Planner uses TOOL_MODEL for better instruction following (not routing model)
 
-# --- Planner: decomposes a research query into targeted sub-queries ---
+# --- Planner: generates a full research execution plan ---
 _research_planner = Agent(
     name="Research Planner",
-    role="Decompose research queries into targeted sub-queries",
-    model=GROQ_ROUTING_MODEL,  # No tools needed, routing model is fine
+    role="Create a detailed research execution plan with targeted queries and source strategies",
+    model=TOOL_MODEL,  # Needs strong instruction following for structured plans
     instructions=[
-        "You are a research planner. Given a research topic, produce EXACTLY 3 sub-queries.",
+        "You are a research strategist. Given a topic, create a DETAILED execution plan",
+        "for 3 parallel research agents. Each agent specializes in a different source type.",
+        "",
+        "## Your 3 agents",
+        "1. **News & Web Scout**: searches general web, news sites, tech blogs",
+        "2. **Data & Reports Scout**: searches for statistics, market data, research reports",
+        "3. **Community & Source Scout**: searches Reddit, GitHub, forums, primary sources",
+        "",
+        "## For EACH agent, provide:",
+        "- QUERY: a specific, compound search query (not vague)",
+        "- SITE_FILTERS: which sites to target (e.g., site:techcrunch.com OR site:wired.com)",
+        "- LANGUAGE: which language to search in (English for global, Spanish for Latam, or both)",
+        "- WHAT_TO_EXTRACT: specific data points to look for",
+        "",
+        "## Output format (follow EXACTLY)",
+        "",
+        "TOPIC_ANALYSIS: [1 sentence: what is this topic about and why does it matter]",
+        "LANGUAGE_STRATEGY: [primary search language and why]",
+        "",
+        "AGENT_1_NEWS:",
+        "  QUERY: [compound search query with keywords]",
+        "  SITE_FILTERS: [site:x.com OR site:y.com]",
+        "  LANGUAGE: [en/es/both]",
+        "  EXTRACT: [what specific data to find]",
+        "",
+        "AGENT_2_DATA:",
+        "  QUERY: [compound search query focused on numbers]",
+        "  SITE_FILTERS: [site:statista.com OR site:mckinsey.com]",
+        "  LANGUAGE: [en/es/both]",
+        "  EXTRACT: [what metrics/stats to find]",
+        "",
+        "AGENT_3_COMMUNITY:",
+        "  QUERY: [compound search query for community/sources]",
+        "  SITE_FILTERS: [site:reddit.com OR site:github.com OR site:news.ycombinator.com]",
+        "  LANGUAGE: [en/es/both]",
+        "  EXTRACT: [what opinions/code/discussions to find]",
+        "",
+        "SUFFICIENCY_CRITERIA: [3 bullet points: what would a complete answer include?]",
         "",
         "## Rules",
-        "- Each sub-query targets a DIFFERENT angle of the topic:",
-        "  1. Current state / recent news / what's happening now",
-        "  2. Data / numbers / market size / statistics",
-        "  3. Key players / competitors / case studies / examples",
-        "- Each sub-query must be a specific search query (not a vague topic)",
-        "- Include site: filters when useful (e.g., site:techcrunch.com)",
-        "- Write queries in the language most likely to find results (English for global, Spanish for Latam)",
-        "",
-        "## Output format (follow exactly)",
-        "QUERY_1: [specific search query for current state]",
-        "QUERY_2: [specific search query for data/numbers]",
-        "QUERY_3: [specific search query for players/examples]",
-        "SUFFICIENCY: [what would a complete answer include? 2-3 bullet points]",
+        "- Queries must be COMPOUND: include multiple relevant keywords in one query",
+        "- Bad: 'AI agents' (too vague). Good: 'AI agent framework LangChain comparison production 2026'",
+        "- Always include year (2025 or 2026) in queries for freshness",
+        "- For Latam topics, search in BOTH English and Spanish",
+        "- site: filters are critical -- they determine source quality",
     ],
     db=db,
     markdown=True,
 )
 
-# --- Three parallel searchers ---
-# Skills restored: MiniMax M2.7 handles long context + skills without
-# hallucinating tool calls (unlike Groq which invented 'get_skill_script').
-_broad_scout = Agent(
-    name="Broad Scout",
-    role="General web search for current information",
+# --- Three specialized scouts ---
+_news_scout = Agent(
+    name="News & Web Scout",
+    role="Search news sites, tech blogs, and general web for current information",
     model=TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=8)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
     instructions=[
-        "You are a web researcher. Search for the topic provided.",
+        "You are a news and web researcher.",
+        "The Research Planner has given you a plan. Follow it.",
+        "",
+        "## Process",
+        "1. Read the planner's AGENT_1_NEWS section for your query and site filters",
+        "2. Execute the search using the planner's query (include site: filters)",
+        "3. If the first search is too broad, do ONE focused follow-up search",
+        "4. Extract findings and produce your report",
         "",
         "## Rules",
-        "- Do MAX 2 searches. One broad, one focused.",
-        "- Work with search snippets. Do NOT fetch full pages.",
-        "- Extract: key facts, numbers, dates, names, URLs.",
+        "- MAX 2 searches total. Quality over quantity.",
+        "- Use the planner's site: filters in your queries",
+        "- Extract: key facts, numbers, dates, names, URLs from snippets",
+        "- Do NOT fetch full articles. Snippets contain 80% of what you need.",
         "",
         "## Output format",
-        "Return a structured summary:",
         "FINDINGS:",
-        "- [finding 1 with source URL]",
-        "- [finding 2 with source URL]",
-        "- [finding 3 with source URL]",
-        "GAPS: [what you couldn't find]",
+        "- **[Key fact]** ([Source title](URL)) — [Why this matters]",
+        "- **[Key fact]** ([Source title](URL)) — [Why this matters]",
+        "- **[Key fact]** ([Source title](URL)) — [Why this matters]",
+        "",
+        "GAPS: [What you searched for but couldn't find]",
     ],
     db=db,
     markdown=True,
@@ -1244,57 +1276,74 @@ _broad_scout = Agent(
 )
 
 _data_scout = Agent(
-    name="Data Scout",
-    role="Search for statistics, market data, and numbers",
+    name="Data & Reports Scout",
+    role="Search for statistics, market data, research reports, and quantitative information",
     model=TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=8)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
     instructions=[
-        "You are a data researcher. Search for statistics and numbers on the topic.",
+        "You are a data and statistics researcher.",
+        "The Research Planner has given you a plan. Follow it.",
+        "",
+        "## Process",
+        "1. Read the planner's AGENT_2_DATA section for your query and site filters",
+        "2. Execute the search targeting data sources (Statista, McKinsey, World Bank, etc.)",
+        "3. If the first search lacks numbers, do ONE follow-up with different site: filters",
+        "4. Extract data points and produce your report",
         "",
         "## Rules",
-        "- Do MAX 2 searches. Focus on data, reports, market size, growth rates.",
-        "- Prioritize: government reports, industry analyses, research firms.",
-        "- Include site: filters like site:statista.com, site:mckinsey.com",
+        "- MAX 2 searches total. Focus on NUMBERS.",
+        "- Every data point must have a source URL",
+        "- Prefer: market size, growth rates, adoption %, funding amounts, user counts",
+        "- If you find conflicting numbers, report BOTH with sources",
         "",
         "## Output format",
-        "Return a structured summary:",
         "DATA_POINTS:",
-        "- [stat 1 with number and source URL]",
-        "- [stat 2 with number and source URL]",
-        "- [stat 3 with number and source URL]",
-        "GAPS: [what data you couldn't find]",
+        "- **[Metric: $X / X%]** ([Source](URL)) — [Context for this number]",
+        "- **[Metric: $X / X%]** ([Source](URL)) — [Context for this number]",
+        "- **[Metric: $X / X%]** ([Source](URL)) — [Context for this number]",
+        "",
+        "GAPS: [What data you searched for but couldn't find]",
     ],
     db=db,
     markdown=True,
     compression_manager=_compression,
 )
 
-_source_scout = Agent(
-    name="Source Scout",
-    role="Find primary sources, case studies, and key players",
+_community_scout = Agent(
+    name="Community & Source Scout",
+    role="Search Reddit, GitHub, forums, and primary sources for community sentiment and code",
     model=TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=8)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
     instructions=[
-        "You are a source researcher. Find primary sources and case studies.",
+        "You are a community and primary source researcher.",
+        "The Research Planner has given you a plan. Follow it.",
+        "",
+        "## Process",
+        "1. Read the planner's AGENT_3_COMMUNITY section for your query and site filters",
+        "2. Search Reddit, GitHub, HackerNews, forums for community discussions",
+        "3. If the first search lacks opinions, do ONE follow-up on a different platform",
+        "4. Extract community sentiment and produce your report",
         "",
         "## Rules",
-        "- Do MAX 2 searches. Focus on company blogs, official announcements, case studies.",
-        "- Look for: who are the key players, what are they doing, real examples.",
-        "- Prioritize primary sources over news articles about them.",
+        "- MAX 2 searches total. Focus on REAL opinions and primary sources.",
+        "- Use site:reddit.com, site:github.com, site:news.ycombinator.com",
+        "- Look for: complaints, praise, feature requests, adoption stories",
+        "- Primary sources (company blogs, official docs) > news articles about them",
         "",
         "## Output format",
-        "Return a structured summary:",
-        "SOURCES:",
-        "- [source 1: company/person, what they did, URL]",
-        "- [source 2: company/person, what they did, URL]",
-        "- [source 3: company/person, what they did, URL]",
-        "GAPS: [what sources you couldn't find]",
+        "COMMUNITY_FINDINGS:",
+        "- **[Opinion/Finding]** ([Source](URL)) — [What this signals]",
+        "- **[Opinion/Finding]** ([Source](URL)) — [What this signals]",
+        "- **[Opinion/Finding]** ([Source](URL)) — [What this signals]",
+        "",
+        "SENTIMENT: [Overall community sentiment: positive/mixed/negative/early]",
+        "GAPS: [What community data you couldn't find]",
     ],
     db=db,
     markdown=True,
@@ -1369,8 +1418,8 @@ _research_synthesizer = Agent(
 deep_research_workflow = Workflow(
     name="deep-research",
     description=(
-        "Production deep research v4: plan → 3 parallel searchers → "
-        "quality gate → synthesis report (readable markdown)."
+        "Production deep research v5: smart planner → 3 specialized scouts "
+        "(news, data, community) in parallel → quality gate → markdown report."
     ),
     db=SqliteDb(
         session_table="deep_research_session",
@@ -1379,11 +1428,11 @@ deep_research_workflow = Workflow(
     steps=[
         # Phase 1: Decompose query into sub-queries
         Step(name="Plan", agent=_research_planner),
-        # Phase 2: 3 searchers in parallel
+        # Phase 2: 3 specialized searchers in parallel
         Parallel(
-            Step(name="Broad Search", agent=_broad_scout, skip_on_failure=True),
+            Step(name="News Search", agent=_news_scout, skip_on_failure=True),
             Step(name="Data Search", agent=_data_scout, skip_on_failure=True),
-            Step(name="Source Search", agent=_source_scout, skip_on_failure=True),
+            Step(name="Community Search", agent=_community_scout, skip_on_failure=True),
             name="Parallel Research",
         ),
         # Phase 3: Quality gate — stop early if research is too thin
