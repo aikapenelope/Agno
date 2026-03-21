@@ -100,34 +100,53 @@ export default function Home() {
               continue;
             }
 
-            // Only show RunContent events (the actual response text)
-            // Skip: ToolCallStarted, ReasoningStep, MemoryUpdate, etc.
-            if (
-              line.startsWith("data: ") &&
-              (currentEvent === "RunContent" ||
-                currentEvent === "RunCompleted" ||
-                currentEvent === "")
-            ) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                const chunk =
-                  data.content ||
-                  data.text ||
-                  (typeof data === "string" ? data : "");
-                if (chunk) {
-                  setMessages((prev) => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.id === assistantMessage.id) {
-                      last.content += chunk;
-                      if (data.agent_name) last.agent = data.agent_name;
-                    }
-                    return [...updated];
-                  });
-                }
-              } catch {
-                // Skip non-JSON SSE lines
+            // Only process data lines for content events
+            if (!line.startsWith("data: ")) continue;
+
+            // Skip ALL intermediate events — only show final response content
+            const skipEvents = [
+              "ToolCallStarted", "ToolCallCompleted", "ToolCallError",
+              "ReasoningStarted", "ReasoningStep", "ReasoningContentDelta", "ReasoningCompleted",
+              "MemoryUpdateStarted", "MemoryUpdateCompleted",
+              "CompressionStarted", "CompressionCompleted",
+              "PreHookStarted", "PreHookCompleted",
+              "PostHookStarted", "PostHookCompleted",
+              "ModelRequestStarted", "ModelRequestCompleted",
+              "SessionSummaryStarted", "SessionSummaryCompleted",
+              "RunStarted", "RunContentCompleted",
+              // Team-specific events
+              "TeamRunStarted", "TeamToolCallStarted", "TeamToolCallCompleted",
+              "TeamReasoningStarted", "TeamReasoningStep", "TeamReasoningCompleted",
+              "TeamMemoryUpdateStarted", "TeamMemoryUpdateCompleted",
+              "TeamModelRequestStarted", "TeamModelRequestCompleted",
+              "TeamRunContentCompleted",
+            ];
+            if (skipEvents.includes(currentEvent)) continue;
+
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              // Skip tool call results and non-text content
+              if (data.tool_calls || data.tool_call_id || data.tools) continue;
+              if (data.event && skipEvents.includes(data.event)) continue;
+
+              const chunk =
+                typeof data.content === "string" ? data.content :
+                typeof data === "string" ? data : "";
+
+              if (chunk && chunk.trim()) {
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last && last.id === assistantMessage.id) {
+                    last.content += chunk;
+                    if (data.agent_name) last.agent = data.agent_name;
+                  }
+                  return [...updated];
+                });
               }
+            } catch {
+              // Skip non-JSON lines
             }
           }
         }
