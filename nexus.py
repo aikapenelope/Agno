@@ -492,6 +492,7 @@ research_agent = Agent(
     role="Search the web for current information and data",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
     retries=2,  # Retry on Groq tool-call validation errors
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
@@ -638,6 +639,7 @@ automation_agent = Agent(
     role="Execute workflows, manage CRM, and run automations",
     model=TOOL_MODEL,  # Needs reliable tool calling for MCP
     tools=_automation_tools or None,  # type: ignore[arg-type]
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
     skills=_skills,
@@ -688,7 +690,7 @@ cerebro = Team(
     mode=TeamMode.route,
     model=GROQ_ROUTING_MODEL,
     knowledge=knowledge_base,
-    pre_hooks=_guardrails,
+    # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
     instructions=[
         "You are Cerebro, a router for the research team.",
@@ -780,6 +782,7 @@ trend_scout = Agent(
         DuckDuckGoTools(),
         WebSearchTools(fixed_max_results=3),
     ],
+    tool_call_limit=5,
     retries=0,
     pre_hooks=_guardrails,
     skills=_trend_scout_skills,
@@ -938,6 +941,7 @@ scriptwriter = Agent(
     role="Write video scripts and storyboards for short-form content",
     model=FAST_MODEL,
     tools=[save_video_file, _video_file_tools],
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     skills=_scriptwriter_skills,
     instructions=[
@@ -990,6 +994,7 @@ creative_director = Agent(
     role="Evaluate video storyboards and describe how they will look visually",
     model=FAST_MODEL,
     tools=[FileTools(base_dir=Path.home() / "nexus-videos", enable_save_file=False)],
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     instructions=[
         "You are a creative director who evaluates video storyboards.",
@@ -1037,6 +1042,7 @@ analytics_agent = Agent(
         CalculatorTools(),
         FileTools(),
     ],
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     skills=_analytics_skills,
     instructions=[
@@ -1079,7 +1085,7 @@ content_team = Team(
     mode=TeamMode.route,
     members=[trend_scout, scriptwriter, analytics_agent],
     model=GROQ_ROUTING_MODEL,
-    pre_hooks=_guardrails,
+    # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
     instructions=[
         "You are the Content Factory router.",
@@ -1150,8 +1156,8 @@ content_production_workflow = Workflow(
 _synthesis_agent = Agent(
     name="Synthesis Agent",
     model=REASONING_MODEL,
-    output_schema=ResearchReport,
-    use_json_mode=True,  # Groq fallback for structured output
+    # output_schema removed: MiniMax does not support structured outputs
+    # use_json_mode removed: same reason
     instructions=[
         "You receive research findings and internal knowledge context.",
         "Synthesize everything into a structured research report.",
@@ -1457,6 +1463,7 @@ _research_synthesizer = Agent(
     role="Produce comprehensive research reports from collected findings",
     model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    tool_call_limit=5,
     skills=_deep_synthesis_skills,
     instructions=[
         "You synthesize research findings into a comprehensive markdown report.",
@@ -1551,6 +1558,7 @@ _keyword_researcher = Agent(
     role="Find high-value topics that AI engines cite and Google ranks",
     model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
     retries=0,
     skills=_seo_skills,
     instructions=[
@@ -1581,6 +1589,7 @@ _article_writer = Agent(
     role="Write GEO-optimized listicle articles in Spanish for aikalabs.cc blog",
     model=FAST_MODEL,
     tools=[save_article_file, _article_file_tools],
+    tool_call_limit=5,
     skills=_seo_skills,
     instructions=[
         "You write blog articles optimized for AI citation (GEO) and Google SEO.",
@@ -1633,6 +1642,7 @@ _seo_auditor = Agent(
     role="Audit articles for SEO and GEO optimization compliance",
     model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent, enable_save_file=False)],
+    tool_call_limit=5,
     instructions=[
         "You audit blog articles for SEO and GEO (Generative Engine Optimization).",
         "",
@@ -1726,6 +1736,7 @@ code_review_agent = Agent(
         CodingTools(base_dir=str(_code_workspace)),
         ReasoningTools(),
     ],
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     reasoning=True,
     reasoning_min_steps=2,
@@ -2279,6 +2290,7 @@ whabi_support_agent = Agent(
     role="Customer support for Whabi WhatsApp Business CRM",
     model=TOOL_MODEL,
     tools=_support_tools + (_automation_tools or []),  # type: ignore[operator]
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
     skills=_whabi_skills,
@@ -2328,6 +2340,7 @@ docflow_support_agent = Agent(
     role="Customer support for Docflow Electronic Health Records system",
     model=TOOL_MODEL,
     tools=_support_tools,
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
     skills=_docflow_skills,
@@ -2375,6 +2388,7 @@ aurora_support_agent = Agent(
     role="Customer support for Aurora voice-first business PWA",
     model=TOOL_MODEL,
     tools=_support_tools,
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
     skills=_aurora_skills,
@@ -2422,6 +2436,7 @@ general_support_agent = Agent(
     role="General customer support and product comparison",
     model=TOOL_MODEL,
     tools=[escalate_to_human, log_support_ticket, WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=5,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
     skills=_skills,
@@ -2477,7 +2492,7 @@ whatsapp_support_team = Team(
     ],
     mode=TeamMode.route,
     model=GROQ_ROUTING_MODEL,
-    pre_hooks=_guardrails,
+    # pre_hooks on individual agents, not team leader
     determine_input_for_members=False,
     instructions=[
         "You are the WhatsApp support router for AikaLabs.",
@@ -2635,6 +2650,7 @@ _competitor_content_scout = Agent(
     role="Track what competitors are publishing and posting",
     model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
     retries=0,
     instructions=[
         "You track competitor content output.",
@@ -2658,6 +2674,7 @@ _competitor_pricing_scout = Agent(
     role="Track competitor pricing changes and offers",
     model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
     retries=0,
     instructions=[
         "You track competitor pricing and offers.",
@@ -2679,6 +2696,7 @@ _competitor_reviews_scout = Agent(
     role="Find recent customer reviews and sentiment about competitors",
     model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
     retries=0,
     instructions=[
         "You track competitor customer sentiment.",
@@ -2701,6 +2719,7 @@ _competitor_synthesizer = Agent(
     role="Produce weekly competitor intelligence reports",
     model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    tool_call_limit=5,
     instructions=[
         "You synthesize competitor intelligence into an actionable weekly report.",
         "",
