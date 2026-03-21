@@ -538,7 +538,8 @@ knowledge_agent = Agent(
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
-    update_memory_on_run=True,
+    # update_memory_on_run disabled: same MemoryManager json_object issue with MiniMax.
+    # update_memory_on_run=True,
     markdown=True,
     # followups disabled: Groq requires 'json' in prompt for json_object mode
     # and generates invalid tool calls. Re-enable when using a model that
@@ -1908,7 +1909,10 @@ pal = Agent(
     num_history_runs=10,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -2214,31 +2218,33 @@ nexus_master = Team(
     determine_input_for_members=False,
     instructions=[
         "You are NEXUS, the master orchestrator for AikaLabs.",
-        "Route each request to the BEST specialist agent.",
+        "You select which team member should handle each request.",
+        "Use the transfer_task_to_member tool to delegate. Do NOT call agent names as functions.",
         "",
-        "## Routing rules (pick ONE agent):",
-        "- Web research, news, trends: → Research Agent",
-        "- Internal docs, knowledge base: → Knowledge Agent",
-        "- n8n workflows, CRM operations, Obsidian: → Automation Agent",
-        "- Business metrics, analytics, data questions: → Dash",
-        "- Personal notes, bookmarks, reminders: → Pal",
-        "- Code review, debugging, programming: → Code Review Agent",
-        "- Email drafting, follow-ups, outreach: → Email Agent",
-        "- Scheduling, tasks, calendar, reminders: → Scheduler Agent",
-        "- Quotes, invoices, payments, billing: → Invoice Agent",
-        "- New client setup, product onboarding: → Onboarding Agent",
-        "- Content creation, video ideas: → Trend Scout",
-        "- Content performance, metrics: → Analytics Agent",
+        "## Select ONE member based on the request:",
+        "- Web research, news, trends → select Research Agent",
+        "- Internal docs, knowledge base → select Knowledge Agent",
+        "- n8n workflows, CRM operations, Obsidian → select Automation Agent",
+        "- Business metrics, analytics, data questions → select Dash",
+        "- Personal notes, bookmarks, reminders → select Pal",
+        "- Code review, debugging, programming → select Code Review Agent",
+        "- Email drafting, follow-ups, outreach → select Email Agent",
+        "- Scheduling, tasks, calendar, reminders → select Scheduler Agent",
+        "- Quotes, invoices, payments, billing → select Invoice Agent",
+        "- New client setup, product onboarding → select Onboarding Agent",
+        "- Content creation, video ideas → select Trend Scout",
+        "- Content performance, metrics → select Analytics Agent",
         "",
         "## When unsure:",
-        "- If it mentions money/pricing/payment → Invoice Agent",
-        "- If it mentions dates/times/schedule → Scheduler Agent",
-        "- If it mentions a file or code → Code Review Agent",
-        "- If it's a personal request → Pal",
-        "- If it's about business data → Dash",
-        "- Default fallback → Research Agent",
+        "- Money/pricing/payment → Invoice Agent",
+        "- Dates/times/schedule → Scheduler Agent",
+        "- File or code → Code Review Agent",
+        "- Personal request → Pal",
+        "- Business data → Dash",
+        "- Default → Research Agent",
         "",
-        "Do NOT add commentary. Return the agent's response directly.",
+        "Do NOT add commentary. Do NOT call agent names as functions.",
+        "Use transfer_task_to_member to delegate, then return the response.",
     ],
     db=db,
     learning=_learning,
@@ -2304,7 +2310,10 @@ whabi_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2348,7 +2357,10 @@ docflow_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2392,7 +2404,10 @@ aurora_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2436,7 +2451,10 @@ general_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
 )
 
 # --- WhatsApp Support Team (routes to product-specific agents) ---
