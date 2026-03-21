@@ -199,6 +199,37 @@ class VideoStoryboard(BaseModel):
     )
 
 
+class SupportTicket(BaseModel):
+    """Structured support interaction for CRM logging and analytics."""
+
+    product: str = Field(description="Product: whabi, docflow, or aurora")
+    intent: str = Field(
+        description="Customer intent: faq, pricing, payment, complaint, "
+        "technical_issue, appointment, document_status, subscription, other"
+    )
+    urgency: str = Field(description="low, medium, high, or critical")
+    summary: str = Field(description="One-line summary of the customer request")
+    resolution: str = Field(description="What was done or recommended")
+    escalated: bool = Field(default=False, description="Whether escalated to human")
+    lead_score: int = Field(
+        default=0, ge=0, le=10,
+        description="Lead quality score 0-10 (0 = not a lead, 10 = ready to close)",
+    )
+
+
+class PaymentConfirmation(BaseModel):
+    """Structured payment request requiring human approval."""
+
+    product: str = Field(description="Product: whabi, docflow, or aurora")
+    client_name: str = Field(description="Client name as provided")
+    amount: str = Field(description="Payment amount with currency (e.g., '$150 USD')")
+    method: str = Field(
+        description="Payment method: transfer, card, paypal, crypto, other"
+    )
+    reference: str = Field(default="", description="Payment reference or invoice number")
+    notes: str = Field(default="", description="Additional context about the payment")
+
+
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
@@ -771,6 +802,103 @@ def save_video_file(contents: str, file_name: str, overwrite: bool = True) -> st
 def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> str:
     """Save a blog article MDX file. Creates an audit record of the write."""
     return _article_file_tools.save_file(contents, file_name, overwrite)
+
+
+# --- WhatsApp Support Tools (shared across product agents) ---
+# Payment confirmation requires human approval before processing.
+# CRM logging and escalation are audit-only (non-blocking).
+
+@approval  # type: ignore[arg-type]  # blocking: pauses until admin approves
+@tool(requires_confirmation=True)
+def confirm_payment(
+    product: str,
+    client_name: str,
+    amount: str,
+    method: str,
+    reference: str = "",
+) -> str:
+    """Confirm a client payment. Requires human approval before processing.
+
+    Use this when a client says they made a payment or wants to pay.
+    The payment will be held until an admin approves it.
+    """
+    return (
+        f"PAYMENT_PENDING_APPROVAL: product={product} client={client_name} "
+        f"amount={amount} method={method} ref={reference}"
+    )
+
+
+@approval(type="audit")
+@tool(requires_confirmation=True)
+def log_support_ticket(
+    product: str,
+    intent: str,
+    summary: str,
+    resolution: str,
+    urgency: str = "medium",
+    lead_score: int = 0,
+) -> str:
+    """Log a support interaction to the CRM for tracking and analytics.
+
+    Call this after resolving any customer query to maintain records.
+    """
+    return (
+        f"TICKET_LOGGED: product={product} intent={intent} urgency={urgency} "
+        f"lead_score={lead_score} summary={summary[:100]}"
+    )
+
+
+@tool()
+def escalate_to_human(
+    product: str,
+    reason: str,
+    client_name: str = "unknown",
+    urgency: str = "high",
+) -> str:
+    """Escalate a conversation to a human agent.
+
+    Use when: complaint is serious, payment dispute, legal/compliance issue,
+    client explicitly asks for a human, or you cannot resolve the issue.
+    """
+    return (
+        f"ESCALATED: product={product} client={client_name} urgency={urgency} "
+        f"reason={reason}"
+    )
+
+
+# --- Domain skills for product support agents ---
+_whabi_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "whabi")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_docflow_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "docflow")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_aurora_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "aurora")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
 
 
 # --- Scriptwriter: turns briefs into video scripts + storyboards ---
@@ -1580,6 +1708,233 @@ code_review_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
+# WhatsApp Customer Support Pipeline
+# ---------------------------------------------------------------------------
+# Production support system with per-product routing. Each product has a
+# specialized agent with domain skills, shared tools (payment, CRM, escalation),
+# and a general fallback for unclassified messages.
+
+_support_tools = [confirm_payment, log_support_ticket, escalate_to_human]
+
+# --- Whabi Support Agent ---
+whabi_support_agent = Agent(
+    name="Whabi Support",
+    role="Customer support for Whabi WhatsApp Business CRM",
+    model=TOOL_MODEL,
+    tools=_support_tools + (_automation_tools or []),  # type: ignore[operator]
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_whabi_skills,
+    instructions=[
+        "You are the support agent for Whabi, a WhatsApp Business CRM.",
+        "You respond in Spanish (Latin America neutral). Be professional but warm.",
+        "",
+        "## What you handle",
+        "- Pricing and plan questions (starter, pro, enterprise)",
+        "- How to set up WhatsApp Business API integration",
+        "- Lead management: importing contacts, scoring, pipelines",
+        "- Campaign creation: templates, scheduling, bulk messaging",
+        "- Media handling: sending images, documents, voice messages",
+        "- Payment confirmation: use confirm_payment tool (requires admin approval)",
+        "- CRM integration with Twenty: contacts, companies, tasks",
+        "",
+        "## Lead Scoring (apply when someone asks about buying)",
+        "- Score 1-3: just browsing, no specific need",
+        "- Score 4-6: asked about features or pricing",
+        "- Score 7-8: requested demo or pricing details",
+        "- Score 9-10: ready to buy, asked for invoice/contract",
+        "",
+        "## Rules",
+        "- ALWAYS log interactions using log_support_ticket after resolving",
+        "- For payments: ALWAYS use confirm_payment (never confirm manually)",
+        "- For complaints or disputes: use escalate_to_human",
+        "- Never share internal system details (IPs, database names, API keys)",
+        "- Business hours: 8am-8pm. Outside hours, acknowledge and promise follow-up",
+        "- Use formal 'usted' on first contact, switch to 'tu' only if client does first",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+# --- Docflow Support Agent ---
+docflow_support_agent = Agent(
+    name="Docflow Support",
+    role="Customer support for Docflow Electronic Health Records system",
+    model=TOOL_MODEL,
+    tools=_support_tools,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_docflow_skills,
+    instructions=[
+        "You are the support agent for Docflow, an Electronic Health Records (EHR) system.",
+        "You respond in Spanish (Latin America neutral). Be professional and precise.",
+        "",
+        "## What you handle",
+        "- EHR system questions: how to upload, search, and manage documents",
+        "- Document types: lab results, prescriptions, imaging, clinical notes",
+        "- Compliance questions: retention periods, data handling, audit requirements",
+        "- Appointment scheduling and management",
+        "- User access and permissions",
+        "- Payment and subscription queries: use confirm_payment tool",
+        "",
+        "## Compliance (CRITICAL)",
+        "- NEVER share patient data in responses, even if the client mentions it",
+        "- NEVER store patient identifiers in conversation logs",
+        "- Refer compliance-specific legal questions to escalate_to_human",
+        "- Retention periods: clinical notes 10yr, labs 7yr, imaging 10yr, Rx 5yr",
+        "",
+        "## Rules",
+        "- ALWAYS log interactions using log_support_ticket after resolving",
+        "- For payments: ALWAYS use confirm_payment",
+        "- For legal/compliance disputes: ALWAYS use escalate_to_human",
+        "- If a client shares patient data, remind them not to and do NOT repeat it",
+        "- Be extra careful with PII -- the guardrails will catch most, but stay vigilant",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+# --- Aurora Support Agent ---
+aurora_support_agent = Agent(
+    name="Aurora Support",
+    role="Customer support for Aurora voice-first business PWA",
+    model=TOOL_MODEL,
+    tools=_support_tools,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_aurora_skills,
+    instructions=[
+        "You are the support agent for Aurora, a voice-first Progressive Web App.",
+        "You respond in Spanish (Latin America neutral). Be friendly and clear.",
+        "",
+        "## What you handle",
+        "- Voice commands: how to use them, troubleshooting recognition issues",
+        "- PWA installation: how to install on iOS, Android, desktop",
+        "- Subscription and billing: plans, upgrades, cancellations",
+        "- Groq Whisper integration: language support, accuracy, settings",
+        "- Task management: creating, listing, completing tasks via voice",
+        "- Notes: taking, searching, and organizing voice notes",
+        "- Payment confirmation: use confirm_payment tool",
+        "",
+        "## Common Troubleshooting",
+        "- Voice not recognized: check microphone permissions, try quieter environment",
+        "- PWA not installing: clear cache, use Chrome/Safari, check HTTPS",
+        "- Slow transcription: check internet connection, Groq API status",
+        "- Wrong language detected: set language explicitly in settings",
+        "",
+        "## Rules",
+        "- ALWAYS log interactions using log_support_ticket after resolving",
+        "- For payments: ALWAYS use confirm_payment",
+        "- For account deletion requests: use escalate_to_human",
+        "- Guide users step-by-step, don't assume technical knowledge",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+# --- General Support Agent (fallback) ---
+general_support_agent = Agent(
+    name="General Support",
+    role="General customer support and product comparison",
+    model=TOOL_MODEL,
+    tools=[escalate_to_human, log_support_ticket, WebSearchTools(fixed_max_results=3)],
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_skills,
+    instructions=[
+        "You are the general support agent for AikaLabs.",
+        "You respond in Spanish (Latin America neutral).",
+        "",
+        "## What you handle",
+        "- General company questions (who we are, what we do)",
+        "- Product comparison: help clients choose between Whabi, Docflow, Aurora",
+        "- Pricing overview across all products",
+        "- Partnership and integration inquiries",
+        "- Messages that don't clearly belong to one product",
+        "",
+        "## Product Summary (for routing hints)",
+        "- **Whabi**: WhatsApp Business CRM. Leads, campaigns, messaging.",
+        "- **Docflow**: Electronic Health Records. Documents, compliance, clinical workflows.",
+        "- **Aurora**: Voice-first PWA. Tasks, notes, business operations via voice.",
+        "",
+        "## Rules",
+        "- If the client's question is clearly about one product, answer it yourself",
+        "  but mention they can get specialized help by asking about that product",
+        "- For complex product-specific questions, suggest they ask again mentioning",
+        "  the product name so the specialized agent handles it",
+        "- ALWAYS log interactions using log_support_ticket",
+        "- For complaints, legal issues, or 'hablar con un humano': use escalate_to_human",
+        "- Never make up pricing -- if unsure, say you'll confirm and follow up",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# --- WhatsApp Support Team (routes to product-specific agents) ---
+whatsapp_support_team = Team(
+    name="WhatsApp Support",
+    description=(
+        "Customer support team for WhatsApp. Routes messages to the correct "
+        "product agent (Whabi, Docflow, Aurora) or general support."
+    ),
+    members=[
+        whabi_support_agent,
+        docflow_support_agent,
+        aurora_support_agent,
+        general_support_agent,
+    ],
+    mode=TeamMode.route,
+    model=GROQ_ROUTING_MODEL,
+    pre_hooks=_guardrails,
+    determine_input_for_members=False,
+    instructions=[
+        "You are the WhatsApp support router for AikaLabs.",
+        "Route each message to the BEST agent based on content.",
+        "",
+        "## Routing rules (pick ONE agent):",
+        "- WhatsApp, CRM, leads, campaigns, messaging, contacts: → Whabi Support",
+        "- Health records, EHR, documents, patients, compliance, medical: → Docflow Support",
+        "- Voice, PWA, app, transcription, Whisper, tasks, notes: → Aurora Support",
+        "- General questions, company info, product comparison, unclear: → General Support",
+        "",
+        "## Signals to look for:",
+        "- Product names mentioned explicitly (whabi, docflow, aurora)",
+        "- Domain keywords (CRM, EHR, voice, PWA, leads, patients)",
+        "- If the message mentions multiple products, route to General Support",
+        "- If the message is a greeting with no context, route to General Support",
+        "",
+        "Do NOT add commentary. Return the agent's response directly.",
+    ],
+    db=db,
+    learning=_learning,
+    enable_session_summaries=False,
+    add_history_to_context=True,
+    num_history_runs=3,
+    show_members_responses=True,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
 # Social Media Autopilot (Workflow 4)
 # ---------------------------------------------------------------------------
 # Scheduled daily: trend research → parallel post generation for 3 platforms
@@ -2070,8 +2425,7 @@ _interfaces: list = []
 if os.getenv("WHATSAPP_ACCESS_TOKEN"):
     _interfaces.append(
         Whatsapp(
-            agent=research_agent,  # Default agent for simple queries
-            team=cerebro,  # Route complex queries through Cerebro
+            team=whatsapp_support_team,  # Product-specific routing (Whabi/Docflow/Aurora)
             phone_number_id=os.getenv("WHATSAPP_PHONE_ID"),
             access_token=os.getenv("WHATSAPP_ACCESS_TOKEN"),
             verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", "nexus-verify"),
@@ -2149,8 +2503,12 @@ agent_os = AgentOS(
         creative_director,
         analytics_agent,
         code_review_agent,
+        whabi_support_agent,
+        docflow_support_agent,
+        aurora_support_agent,
+        general_support_agent,
     ],
-    teams=[cerebro, content_team],
+    teams=[cerebro, content_team, whatsapp_support_team],
     workflows=[
         client_research_workflow,
         content_production_workflow,
