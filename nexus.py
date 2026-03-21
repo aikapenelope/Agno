@@ -529,9 +529,7 @@ knowledge_agent = Agent(
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
     # skills removed: simple tool agent, skills add 3 extra tools that confuse routing
-    reasoning=True,
-    reasoning_min_steps=2,
-    reasoning_max_steps=5,
+    # reasoning disabled: adds visible "thinking" steps and extra latency with MiniMax
     instructions=[
         "You are a knowledge specialist.",
         "Search the knowledge base for relevant information before answering.",
@@ -709,7 +707,7 @@ cerebro = Team(
     # No learning on team leader (routes only, members have their own learning)
     enable_session_summaries=False,
     add_history_to_context=False,
-    show_members_responses=True,
+    show_members_responses=False,
     add_datetime_to_context=False,
     markdown=True,
     # followups disabled: Groq requires 'json' in prompt for json_object mode
@@ -1106,7 +1104,7 @@ content_team = Team(
     # No learning on team leader (routes only, members have their own learning)
     enable_session_summaries=False,
     add_history_to_context=False,
-    show_members_responses=True,
+    show_members_responses=False,
     add_datetime_to_context=False,
     markdown=True,
     # followups disabled: Groq requires 'json' in prompt for json_object mode
@@ -1742,9 +1740,7 @@ code_review_agent = Agent(
     ],
     tool_call_limit=5,
     pre_hooks=_guardrails,
-    reasoning=True,
-    reasoning_min_steps=2,
-    reasoning_max_steps=5,
+    # reasoning disabled: adds visible "thinking" steps and extra latency with MiniMax
     instructions=[
         "You are a code review specialist that gets sharper with every review.",
         "You operate in a sandboxed workspace directory. All files live there.",
@@ -2524,7 +2520,7 @@ whatsapp_support_team = Team(
     enable_session_summaries=False,
     add_history_to_context=True,
     num_history_runs=3,
-    show_members_responses=True,
+    show_members_responses=False,
     add_datetime_to_context=True,
     markdown=True,
 )
