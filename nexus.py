@@ -1171,183 +1171,241 @@ client_research_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
-# Deep Research System v5
+# Deep Research System v6
 # ---------------------------------------------------------------------------
-# Pattern: Smart Planner → Parallel(3 specialized scouts) → Quality Gate → Synthesizer
+# Pattern: Smart Planner → Parallel(N specialized scouts) → Quality Gate → Synthesizer
 #
-# v5 improvements over v4:
-# - Planner generates a full execution plan (not just queries) with site: filters,
-#   language strategy, and tool assignments per scout
-# - Scouts have richer instructions that follow the planner's strategy
-# - Planner uses TOOL_MODEL for better instruction following (not routing model)
+# v6: Multiple search providers. Each scout uses a different search backend.
+# Scouts are created conditionally based on available API keys.
+# The planner knows which scouts are available and assigns work accordingly.
+# Minimum: WebSearchTools (always available, free).
+# Premium: TavilyTools, ExaTools, FirecrawlTools, SpiderTools (need API keys).
 
-# --- Planner: generates a full research execution plan ---
-_research_planner = Agent(
-    name="Research Planner",
-    role="Create a detailed research execution plan with targeted queries and source strategies",
-    model=TOOL_MODEL,  # Needs strong instruction following for structured plans
-    instructions=[
-        "You are a research strategist. Given a topic, create a DETAILED execution plan",
-        "for 3 parallel research agents. Each agent specializes in a different source type.",
-        "",
-        "## Your 3 agents",
-        "1. **News & Web Scout**: searches general web, news sites, tech blogs",
-        "2. **Data & Reports Scout**: searches for statistics, market data, research reports",
-        "3. **Community & Source Scout**: searches Reddit, GitHub, forums, primary sources",
-        "",
-        "## For EACH agent, provide:",
-        "- QUERY: a specific, compound search query (not vague)",
-        "- SITE_FILTERS: which sites to target (e.g., site:techcrunch.com OR site:wired.com)",
-        "- LANGUAGE: which language to search in (English for global, Spanish for Latam, or both)",
-        "- WHAT_TO_EXTRACT: specific data points to look for",
-        "",
-        "## Output format (follow EXACTLY)",
-        "",
-        "TOPIC_ANALYSIS: [1 sentence: what is this topic about and why does it matter]",
-        "LANGUAGE_STRATEGY: [primary search language and why]",
-        "",
-        "AGENT_1_NEWS:",
-        "  QUERY: [compound search query with keywords]",
-        "  SITE_FILTERS: [site:x.com OR site:y.com]",
-        "  LANGUAGE: [en/es/both]",
-        "  EXTRACT: [what specific data to find]",
-        "",
-        "AGENT_2_DATA:",
-        "  QUERY: [compound search query focused on numbers]",
-        "  SITE_FILTERS: [site:statista.com OR site:mckinsey.com]",
-        "  LANGUAGE: [en/es/both]",
-        "  EXTRACT: [what metrics/stats to find]",
-        "",
-        "AGENT_3_COMMUNITY:",
-        "  QUERY: [compound search query for community/sources]",
-        "  SITE_FILTERS: [site:reddit.com OR site:github.com OR site:news.ycombinator.com]",
-        "  LANGUAGE: [en/es/both]",
-        "  EXTRACT: [what opinions/code/discussions to find]",
-        "",
-        "SUFFICIENCY_CRITERIA: [3 bullet points: what would a complete answer include?]",
-        "",
-        "## Rules",
-        "- Queries must be COMPOUND: include multiple relevant keywords in one query",
-        "- Bad: 'AI agents' (too vague). Good: 'AI agent framework LangChain comparison production 2026'",
-        "- Always include year (2025 or 2026) in queries for freshness",
-        "- For Latam topics, search in BOTH English and Spanish",
-        "- site: filters are critical -- they determine source quality",
-    ],
-    db=db,
-    markdown=True,
-)
+# --- Search scouts: one per provider, created conditionally ---
 
-# --- Three specialized scouts ---
-_news_scout = Agent(
-    name="News & Web Scout",
-    role="Search news sites, tech blogs, and general web for current information",
+_research_scouts: list = []
+
+# Scout 1: Tavily (best for news, articles, general AI-optimized search)
+if os.getenv("TAVILY_API_KEY"):
+    _tavily_scout = Agent(
+        name="Tavily Scout",
+        role="AI-optimized web search for news, articles, and current information",
+        model=TOOL_MODEL,
+        tools=[TavilyTools()],
+        tool_call_limit=3,
+        retries=1,
+        skills=_deep_search_skills,
+        instructions=[
+            "You are a research agent using Tavily (AI-optimized search).",
+            "The Research Planner has given you a plan. Follow it.",
+            "",
+            "## Your strength: Tavily returns clean, AI-ready snippets.",
+            "- Best for: news articles, blog posts, recent announcements, tech coverage",
+            "- Tavily automatically extracts relevant content from pages",
+            "- Use the planner's query and site filters",
+            "",
+            "## Process",
+            "1. Execute the planner's query via tavily_search",
+            "2. If results are thin, do ONE follow-up with a refined query",
+            "3. Extract findings with source URLs",
+            "",
+            "## Output format",
+            "FINDINGS:",
+            "- **[Key fact]** ([Source](URL)) — [Why this matters]",
+            "",
+            "GAPS: [What you couldn't find]",
+        ],
+        db=db,
+        markdown=True,
+        compression_manager=_compression,
+    )
+    _research_scouts.append(("Tavily Search", _tavily_scout))
+
+# Scout 2: Exa (best for semantic search, finding similar content, research papers)
+if os.getenv("EXA_API_KEY"):
+    _exa_scout = Agent(
+        name="Exa Scout",
+        role="Semantic search for research papers, similar content, and deep web results",
+        model=TOOL_MODEL,
+        tools=[ExaTools()],
+        tool_call_limit=3,
+        retries=1,
+        skills=_deep_search_skills,
+        instructions=[
+            "You are a research agent using Exa (semantic/neural search).",
+            "The Research Planner has given you a plan. Follow it.",
+            "",
+            "## Your strength: Exa finds content by MEANING, not just keywords.",
+            "- Best for: research papers, technical docs, finding similar content",
+            "- Exa excels at finding niche content that keyword search misses",
+            "- Use the planner's query but phrase it as a natural question",
+            "",
+            "## Process",
+            "1. Execute the planner's query via exa_search",
+            "2. If results are thin, try rephrasing as a question",
+            "3. Extract findings with source URLs",
+            "",
+            "## Output format",
+            "FINDINGS:",
+            "- **[Key fact]** ([Source](URL)) — [Why this matters]",
+            "",
+            "GAPS: [What you couldn't find]",
+        ],
+        db=db,
+        markdown=True,
+        compression_manager=_compression,
+    )
+    _research_scouts.append(("Exa Search", _exa_scout))
+
+# Scout 3: Firecrawl (best for extracting full page content, structured data)
+if os.getenv("FIRECRAWL_API_KEY"):
+    _firecrawl_scout = Agent(
+        name="Firecrawl Scout",
+        role="Deep page extraction for detailed content, documentation, and structured data",
+        model=TOOL_MODEL,
+        tools=[FirecrawlTools()],
+        tool_call_limit=3,
+        retries=1,
+        skills=_deep_search_skills,
+        instructions=[
+            "You are a research agent using Firecrawl (deep page extraction).",
+            "The Research Planner has given you a plan. Follow it.",
+            "",
+            "## Your strength: Firecrawl extracts FULL page content, not just snippets.",
+            "- Best for: documentation pages, GitHub READMEs, detailed articles",
+            "- Use when you need the complete content of a specific URL",
+            "- The planner may give you specific URLs to scrape",
+            "",
+            "## Process",
+            "1. If the planner gave specific URLs, scrape those directly",
+            "2. Otherwise, search and then scrape the most relevant result",
+            "3. Extract detailed findings from the full content",
+            "",
+            "## Output format",
+            "FINDINGS:",
+            "- **[Key fact]** ([Source](URL)) — [Why this matters]",
+            "",
+            "GAPS: [What you couldn't find]",
+        ],
+        db=db,
+        markdown=True,
+        compression_manager=_compression,
+    )
+    _research_scouts.append(("Firecrawl Search", _firecrawl_scout))
+
+# Scout 4: Spider (best for crawling entire sites, sitemaps, bulk extraction)
+_spider_scout = Agent(
+    name="Spider Scout",
+    role="Web crawling for site-wide content, sitemaps, and bulk data extraction",
     model=TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=8)],
+    tools=[SpiderTools()],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
     instructions=[
-        "You are a news and web researcher.",
+        "You are a research agent using Spider (web crawler).",
         "The Research Planner has given you a plan. Follow it.",
         "",
-        "## Process",
-        "1. Read the planner's AGENT_1_NEWS section for your query and site filters",
-        "2. Execute the search using the planner's query (include site: filters)",
-        "3. If the first search is too broad, do ONE focused follow-up search",
-        "4. Extract findings and produce your report",
+        "## Your strength: Spider crawls sites and extracts structured content.",
+        "- Best for: crawling GitHub repos, documentation sites, company blogs",
+        "- Use when you need to explore multiple pages from one domain",
+        "- Good for finding all pages related to a topic on a specific site",
         "",
-        "## Rules",
-        "- MAX 2 searches total. Quality over quantity.",
-        "- Use the planner's site: filters in your queries",
-        "- Extract: key facts, numbers, dates, names, URLs from snippets",
-        "- Do NOT fetch full articles. Snippets contain 80% of what you need.",
+        "## Process",
+        "1. Use the planner's target site/URL to crawl",
+        "2. Extract relevant content from crawled pages",
+        "3. Summarize findings with source URLs",
         "",
         "## Output format",
         "FINDINGS:",
-        "- **[Key fact]** ([Source title](URL)) — [Why this matters]",
-        "- **[Key fact]** ([Source title](URL)) — [Why this matters]",
-        "- **[Key fact]** ([Source title](URL)) — [Why this matters]",
+        "- **[Key fact]** ([Source](URL)) — [Why this matters]",
         "",
-        "GAPS: [What you searched for but couldn't find]",
+        "GAPS: [What you couldn't find]",
     ],
     db=db,
     markdown=True,
     compression_manager=_compression,
 )
+_research_scouts.append(("Spider Search", _spider_scout))
 
-_data_scout = Agent(
-    name="Data & Reports Scout",
-    role="Search for statistics, market data, research reports, and quantitative information",
+# Scout 5: WebSearch (always available, free fallback)
+_websearch_scout = Agent(
+    name="WebSearch Scout",
+    role="General web search using DuckDuckGo as free fallback",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=8)],
     tool_call_limit=3,
     retries=1,
     skills=_deep_search_skills,
     instructions=[
-        "You are a data and statistics researcher.",
+        "You are a research agent using general web search.",
         "The Research Planner has given you a plan. Follow it.",
         "",
-        "## Process",
-        "1. Read the planner's AGENT_2_DATA section for your query and site filters",
-        "2. Execute the search targeting data sources (Statista, McKinsey, World Bank, etc.)",
-        "3. If the first search lacks numbers, do ONE follow-up with different site: filters",
-        "4. Extract data points and produce your report",
+        "## Your strength: Free, always available, good for general queries.",
+        "- Best for: general web results, community forums, broad coverage",
+        "- Use the planner's query with site: filters for precision",
         "",
-        "## Rules",
-        "- MAX 2 searches total. Focus on NUMBERS.",
-        "- Every data point must have a source URL",
-        "- Prefer: market size, growth rates, adoption %, funding amounts, user counts",
-        "- If you find conflicting numbers, report BOTH with sources",
+        "## Process",
+        "1. Execute the planner's query via web_search",
+        "2. If results are thin, do ONE follow-up with refined keywords",
+        "3. Extract findings with source URLs",
         "",
         "## Output format",
-        "DATA_POINTS:",
-        "- **[Metric: $X / X%]** ([Source](URL)) — [Context for this number]",
-        "- **[Metric: $X / X%]** ([Source](URL)) — [Context for this number]",
-        "- **[Metric: $X / X%]** ([Source](URL)) — [Context for this number]",
+        "FINDINGS:",
+        "- **[Key fact]** ([Source](URL)) — [Why this matters]",
         "",
-        "GAPS: [What data you searched for but couldn't find]",
+        "GAPS: [What you couldn't find]",
     ],
     db=db,
     markdown=True,
     compression_manager=_compression,
 )
+_research_scouts.append(("WebSearch", _websearch_scout))
 
-_community_scout = Agent(
-    name="Community & Source Scout",
-    role="Search Reddit, GitHub, forums, and primary sources for community sentiment and code",
+# --- Build the list of available scout names for the planner ---
+_available_scout_names = [name for name, _ in _research_scouts]
+
+# --- Planner: generates a full research execution plan ---
+# The planner knows which scouts are available and assigns work to each.
+_research_planner = Agent(
+    name="Research Planner",
+    role="Create a detailed research execution plan assigning work to available search agents",
     model=TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=8)],
-    tool_call_limit=3,
-    retries=1,
-    skills=_deep_search_skills,
     instructions=[
-        "You are a community and primary source researcher.",
-        "The Research Planner has given you a plan. Follow it.",
+        "You are a research strategist. Given a topic, create a DETAILED execution plan",
+        f"for {len(_research_scouts)} parallel research agents.",
         "",
-        "## Process",
-        "1. Read the planner's AGENT_3_COMMUNITY section for your query and site filters",
-        "2. Search Reddit, GitHub, HackerNews, forums for community discussions",
-        "3. If the first search lacks opinions, do ONE follow-up on a different platform",
-        "4. Extract community sentiment and produce your report",
+        f"## Available agents: {', '.join(_available_scout_names)}",
+        "",
+        "## Agent capabilities:",
+        "- **Tavily Scout**: AI-optimized search. Best for news, articles, blogs, announcements.",
+        "- **Exa Scout**: Semantic/neural search. Best for research papers, similar content, niche topics.",
+        "- **Firecrawl Scout**: Full page extraction. Best for scraping specific URLs, docs, READMEs.",
+        "- **Spider Scout**: Web crawler. Best for crawling GitHub repos, documentation sites.",
+        "- **WebSearch Scout**: General search (DuckDuckGo). Free fallback for broad queries.",
+        "",
+        "## For EACH available agent, provide a section:",
+        "AGENT_[NAME]:",
+        "  QUERY: [compound search query with keywords and site: filters]",
+        "  STRATEGY: [what this agent should focus on given its strengths]",
+        "  EXTRACT: [specific data points to look for]",
         "",
         "## Rules",
-        "- MAX 2 searches total. Focus on REAL opinions and primary sources.",
-        "- Use site:reddit.com, site:github.com, site:news.ycombinator.com",
-        "- Look for: complaints, praise, feature requests, adoption stories",
-        "- Primary sources (company blogs, official docs) > news articles about them",
+        "- Assign DIFFERENT angles to each agent. No overlap.",
+        "- Queries must be COMPOUND: multiple relevant keywords in one query",
+        "- Always include year (2025 or 2026) in queries for freshness",
+        "- For Latam topics, include both English and Spanish queries",
+        "- site: filters are critical for quality",
+        "- If only WebSearch is available, split the topic into 1 broad query",
         "",
         "## Output format",
-        "COMMUNITY_FINDINGS:",
-        "- **[Opinion/Finding]** ([Source](URL)) — [What this signals]",
-        "- **[Opinion/Finding]** ([Source](URL)) — [What this signals]",
-        "- **[Opinion/Finding]** ([Source](URL)) — [What this signals]",
+        "TOPIC_ANALYSIS: [1 sentence: what is this topic and why it matters]",
+        "LANGUAGE_STRATEGY: [primary search language and why]",
         "",
-        "SENTIMENT: [Overall community sentiment: positive/mixed/negative/early]",
-        "GAPS: [What community data you couldn't find]",
+        "Then one section per available agent with QUERY, STRATEGY, EXTRACT.",
     ],
     db=db,
     markdown=True,
-    compression_manager=_compression,
 )
 
 # --- Quality gate: stop early if research is too thin ---
@@ -1418,21 +1476,19 @@ _research_synthesizer = Agent(
 deep_research_workflow = Workflow(
     name="deep-research",
     description=(
-        "Production deep research v5: smart planner → 3 specialized scouts "
-        "(news, data, community) in parallel → quality gate → markdown report."
+        "Production deep research v6: smart planner → N specialized scouts "
+        f"({', '.join(_available_scout_names)}) in parallel → quality gate → markdown report."
     ),
     db=SqliteDb(
         session_table="deep_research_session",
         db_file="nexus.db",
     ),
     steps=[
-        # Phase 1: Decompose query into sub-queries
+        # Phase 1: Planner creates execution plan for available scouts
         Step(name="Plan", agent=_research_planner),
-        # Phase 2: 3 specialized searchers in parallel
+        # Phase 2: All available scouts search in parallel
         Parallel(
-            Step(name="News Search", agent=_news_scout, skip_on_failure=True),
-            Step(name="Data Search", agent=_data_scout, skip_on_failure=True),
-            Step(name="Community Search", agent=_community_scout, skip_on_failure=True),
+            *[Step(name=name, agent=agent, skip_on_failure=True) for name, agent in _research_scouts],
             name="Parallel Research",
         ),
         # Phase 3: Quality gate — stop early if research is too thin
