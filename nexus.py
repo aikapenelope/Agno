@@ -2199,10 +2199,149 @@ invoice_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
+# Product Development Team
+# ---------------------------------------------------------------------------
+# Coordinate mode: leader orchestrates back-and-forth between members.
+# Use for: feature prioritization, user feedback analysis, product specs.
+# The leader asks Product Manager to analyze, UX Researcher to validate,
+# and Technical Writer to document — iterating until the output is solid.
+
+_product_manager = Agent(
+    name="Product Manager",
+    role="Prioritize features, write specs, analyze product-market fit",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are a product manager for AikaLabs (Whabi, Docflow, Aurora).",
+        "",
+        "## What you do",
+        "- Analyze user feedback and feature requests",
+        "- Prioritize features by impact vs effort",
+        "- Write product specs and user stories",
+        "- Research competitor features and market trends",
+        "",
+        "## Output format",
+        "Always structure your analysis with:",
+        "- Problem statement",
+        "- Proposed solution",
+        "- Impact (high/medium/low)",
+        "- Effort estimate",
+        "- Success metrics",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_ux_researcher = Agent(
+    name="UX Researcher",
+    role="Analyze user behavior, validate product decisions with data",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are a UX researcher for AikaLabs.",
+        "",
+        "## What you do",
+        "- Analyze user feedback patterns and pain points",
+        "- Validate product decisions with user behavior data",
+        "- Identify usability issues and improvement opportunities",
+        "- Research UX best practices for similar products",
+        "",
+        "## Your perspective",
+        "Always advocate for the user. Challenge assumptions.",
+        "Back opinions with data or established UX principles.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_technical_writer = Agent(
+    name="Technical Writer",
+    role="Document APIs, write guides, create product documentation",
+    model=TOOL_MODEL,
+    tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are a technical writer for AikaLabs.",
+        "",
+        "## What you do",
+        "- Write API documentation and integration guides",
+        "- Create user guides and onboarding docs",
+        "- Document product features and workflows",
+        "- Translate technical specs into user-friendly language",
+        "",
+        "## Style",
+        "- Clear, concise, scannable",
+        "- Code examples where relevant",
+        "- Step-by-step instructions",
+        "- Write in Spanish (Latam) unless asked otherwise",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+product_dev_team = Team(
+    id="product-dev",
+    name="Product Development",
+    description=(
+        "Product development team: analyzes feedback, prioritizes features, "
+        "writes specs, and documents decisions. Uses coordinate mode for "
+        "iterative refinement between Product Manager, UX Researcher, and Technical Writer."
+    ),
+    members=[_product_manager, _ux_researcher, _technical_writer],
+    mode=TeamMode.coordinate,
+    model=TOOL_MODEL,  # MiniMax for orchestration
+    max_iterations=5,
+    show_members_responses=False,
+    instructions=[
+        "You lead the Product Development team for AikaLabs.",
+        "",
+        "## Process",
+        "1. Ask Product Manager to analyze the request (features, priorities, specs)",
+        "2. Ask UX Researcher to validate from the user perspective",
+        "3. If documentation is needed, ask Technical Writer to produce it",
+        "4. Synthesize everything into a final recommendation",
+        "",
+        "## Products context",
+        "- Whabi: WhatsApp Business CRM (leads, campaigns, messaging)",
+        "- Docflow: EHR system (health records, documents, compliance)",
+        "- Aurora: Voice-first PWA (Nuxt 3, Clerk, Groq Whisper)",
+    ],
+    db=db,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
 # NEXUS Master Team
 # ---------------------------------------------------------------------------
-# The main orchestrator team with access to all key agents.
-# Uses TOOL_MODEL (MiniMax) for precise routing on complex queries.
+# The father team: routes to individual agents OR to sub-teams.
+# Sub-teams handle complex multi-step requests that need coordination.
+# Individual agents handle simple, focused requests.
 # This is the closest to a "DeepAgent" pattern in Agno — one smart
 # orchestrator that can delegate to any specialist.
 
@@ -2215,6 +2354,7 @@ nexus_master = Team(
         "content, code review, personal assistant, scheduling, billing, or support."
     ),
     members=[
+        # --- Individual agents (simple, focused requests) ---
         research_agent,
         knowledge_agent,
         automation_agent,
@@ -2227,6 +2367,10 @@ nexus_master = Team(
         onboarding_agent,
         trend_scout,
         analytics_agent,
+        # --- Sub-teams (complex, multi-step requests) ---
+        cerebro,
+        content_team,
+        product_dev_team,
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
@@ -2251,6 +2395,11 @@ nexus_master = Team(
         "- New client setup, product onboarding → Onboarding Agent",
         "- Content creation, video ideas → Trend Scout",
         "- Content performance, metrics → Analytics Agent",
+        "",
+        "## Route to SUB-TEAMS for complex requests:",
+        "- Multi-source research (web + knowledge + CRM) → Cerebro",
+        "- Content production (scripts, storyboards, audits) → Content Factory",
+        "- Feature analysis, product specs, UX feedback → Product Development",
         "",
         "## When unsure:",
         "- Money/pricing/payment → Invoice Agent",
@@ -3102,8 +3251,11 @@ agent_os = AgentOS(
         email_agent,
         scheduler_agent,
         invoice_agent,
+        _product_manager,
+        _ux_researcher,
+        _technical_writer,
     ],
-    teams=[cerebro, content_team, whatsapp_support_team, nexus_master],
+    teams=[cerebro, content_team, whatsapp_support_team, nexus_master, product_dev_team],
     workflows=[
         client_research_workflow,
         content_production_workflow,
