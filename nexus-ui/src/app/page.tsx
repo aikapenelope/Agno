@@ -92,8 +92,22 @@ export default function Home() {
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
 
+          let currentEvent = "";
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
+            // Track SSE event type
+            if (line.startsWith("event: ")) {
+              currentEvent = line.slice(7).trim();
+              continue;
+            }
+
+            // Only show RunContent events (the actual response text)
+            // Skip: ToolCallStarted, ReasoningStep, MemoryUpdate, etc.
+            if (
+              line.startsWith("data: ") &&
+              (currentEvent === "RunContent" ||
+                currentEvent === "RunCompleted" ||
+                currentEvent === "")
+            ) {
               try {
                 const data = JSON.parse(line.slice(6));
                 const chunk =
@@ -112,7 +126,7 @@ export default function Home() {
                   });
                 }
               } catch {
-                // Skip non-JSON SSE lines (event names, comments)
+                // Skip non-JSON SSE lines
               }
             }
           }
