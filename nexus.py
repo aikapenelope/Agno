@@ -351,9 +351,7 @@ _learning = LearningMachine(
     model=TOOL_MODEL,
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
-    # user_memory disabled: causes MiniMax "invalid chat setting (2013)" error.
-    # MiniMax doesn't support response_format: json_object which user_memory requires.
-    # user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
     entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
 )
@@ -365,7 +363,7 @@ _learning_with_audit = LearningMachine(
     model=TOOL_MODEL,
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
-    # user_memory disabled: same MiniMax json_object incompatibility
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
     entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
     decision_log=DecisionLogConfig(mode=LearningMode.ALWAYS),
@@ -540,7 +538,8 @@ knowledge_agent = Agent(
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
-    update_memory_on_run=True,
+    # update_memory_on_run disabled: same MemoryManager json_object issue with MiniMax.
+    # update_memory_on_run=True,
     markdown=True,
     # followups disabled: Groq requires 'json' in prompt for json_object mode
     # and generates invalid tool calls. Re-enable when using a model that
@@ -1910,7 +1909,10 @@ pal = Agent(
     num_history_runs=10,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -2308,7 +2310,10 @@ whabi_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2352,7 +2357,10 @@ docflow_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2396,7 +2404,10 @@ aurora_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2440,7 +2451,10 @@ general_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
+    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
+    # memory via tool calling instead (works with MiniMax).
+    # enable_agentic_memory=True,
 )
 
 # --- WhatsApp Support Team (routes to product-specific agents) ---
