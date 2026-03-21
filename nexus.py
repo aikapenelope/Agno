@@ -1201,15 +1201,17 @@ _research_planner = Agent(
     markdown=True,
 )
 
-# --- Three parallel searchers (used in broadcast mode) ---
+# --- Three parallel searchers ---
+# NOTE: scouts intentionally have NO skills to avoid hallucinated tool calls.
+# Skills inject long context that causes llama-3.3-70b to invent non-existent
+# tools like 'get_skill_script'. Keep scouts lean: one tool, clear instructions.
 _broad_scout = Agent(
     name="Broad Scout",
     role="General web search for current information",
     model=GROQ_TOOL_MODEL,
-    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
-    tool_call_limit=4,
-    retries=0,
-    skills=_deep_search_skills,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=3,
+    retries=1,
     instructions=[
         "You are a web researcher. Search for the topic provided.",
         "",
@@ -1235,10 +1237,9 @@ _data_scout = Agent(
     name="Data Scout",
     role="Search for statistics, market data, and numbers",
     model=GROQ_TOOL_MODEL,
-    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
-    tool_call_limit=4,
-    retries=0,
-    skills=_deep_search_skills,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=3,
+    retries=1,
     instructions=[
         "You are a data researcher. Search for statistics and numbers on the topic.",
         "",
@@ -1264,10 +1265,9 @@ _source_scout = Agent(
     name="Source Scout",
     role="Find primary sources, case studies, and key players",
     model=GROQ_TOOL_MODEL,
-    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
-    tool_call_limit=4,
-    retries=0,
-    skills=_deep_search_skills,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=3,
+    retries=1,
     instructions=[
         "You are a source researcher. Find primary sources and case studies.",
         "",
