@@ -496,7 +496,7 @@ research_agent = Agent(
     retries=2,  # Retry on Groq tool-call validation errors
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
-    skills=_skills,
+    # skills removed: simple tool agent, skills add 3 extra tools that confuse routing
     instructions=[
         "You are a research specialist.",
         "Use the web_search tool to find current, accurate information.",
@@ -505,7 +505,7 @@ research_agent = Agent(
         "Be thorough but concise.",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -528,7 +528,7 @@ knowledge_agent = Agent(
     search_knowledge=True,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
-    skills=_skills,
+    # skills removed: simple tool agent, skills add 3 extra tools that confuse routing
     reasoning=True,
     reasoning_min_steps=2,
     reasoning_max_steps=5,
@@ -642,7 +642,7 @@ automation_agent = Agent(
     tool_call_limit=5,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
-    skills=_skills,
+    # skills removed: simple tool agent, skills add 3 extra tools that confuse routing
     instructions=[
         "You are an automation specialist with access to n8n, Twenty CRM, and Obsidian.",
         "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
@@ -814,7 +814,7 @@ trend_scout = Agent(
         "- Produce the ContentBrief structured output directly after searching",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -985,7 +985,7 @@ scriptwriter = Agent(
         '"style":{"font":"Inter","primary_color":"#1a1a2e","accent_color":"#e94560"}}',
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1030,7 +1030,7 @@ creative_director = Agent(
         "Keep it concise. The user will choose which variant to produce.",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1073,7 +1073,7 @@ analytics_agent = Agent(
         "- Always compare week-over-week for trends",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1507,7 +1507,7 @@ _research_synthesizer = Agent(
         "- Save the report using save_file: research-<topic-slug>-<date>.md",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     markdown=True,
     compression_manager=_compression,
 )
@@ -1636,7 +1636,7 @@ _article_writer = Agent(
         "- Save to: knowledge/blog-drafts/<slug>.mdx",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     markdown=True,
 )
 
@@ -1772,7 +1772,7 @@ code_review_agent = Agent(
         "- Use relative paths within the workspace only",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -1803,7 +1803,7 @@ dash = Agent(
     retries=1,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
-    skills=_skills,
+    # skills removed: simple tool agent, skills add 3 extra tools that confuse routing
     instructions=[
         "You are Dash, a self-learning data analytics agent.",
         "",
@@ -1878,7 +1878,7 @@ pal = Agent(
     tool_call_limit=5,
     retries=1,
     pre_hooks=_guardrails,
-    skills=_skills,
+    # skills removed: simple tool agent, skills add 3 extra tools that confuse routing
     instructions=[
         "You are Pal, a personal agent that learns everything about its user.",
         "",
@@ -2269,10 +2269,10 @@ nexus_master = Team(
     # No learning on team leader -- it only routes, doesn't need search_learnings/save_learning.
     # Individual member agents have their own learning. Adding learning here gives the leader
     # extra tools that MiniMax calls instead of delegate_task_to_member.
-    enable_session_summaries=True,
+    enable_session_summaries=False,
     add_history_to_context=True,
-    num_history_runs=5,
-    show_members_responses=True,
+    num_history_runs=3,
+    show_members_responses=False,  # respond_directly handles this
     add_datetime_to_context=True,
     markdown=True,
     # followups disabled: Groq requires 'json' in prompt for json_object mode
@@ -2744,7 +2744,7 @@ _competitor_synthesizer = Agent(
         "- Be analytical: what does this MEAN for us, not just what happened",
     ],
     db=db,
-    learning=_learning,
+    # learning removed: stateless agent, learning adds 5+ extra tools and 20s of extraction
     markdown=True,
     compression_manager=_compression,
 )
