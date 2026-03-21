@@ -295,50 +295,35 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # ---------------------------------------------------------------------------
 # Model Configuration
 # ---------------------------------------------------------------------------
-# Primary: MiniMax M2.7 (released 2026-03-18). 200K context, tool calling,
-# reasoning, 97% skill adherence. $0.30/$1.20 per 1M tokens (input/output).
-# Groq: ONLY for routing (no tools) and background tasks (evals, followups).
-# Groq tool calling is unreliable (known issue, no fix as of March 2026).
+# Primary: OpenAI models via OpenRouter (openrouter.ai).
+# OpenRouter provides access to OpenAI, Anthropic, Google, and 300+ models
+# with a single API key. Prices are same as direct API.
+#
+# Why OpenRouter instead of MiniMax:
+# - MiniMax doesn't support json_object, structured outputs, or reasoning
+# - Every Agno feature works with OpenAI models (memory, reasoning, skills)
+# - GPT-5-nano is cheaper than MiniMax ($0.05 vs $0.30 per 1M input)
 
-# --- MiniMax Models (primary -- all tool calling goes through these) ---
-# M2.7: flagship model. Tool calling, reasoning, 200K context, ~60 tps.
-# SWE-Pro 56.22%, best open-source on GDPval-AA (ELO 1495).
-# role_map: MiniMax API does not support the "developer" role that OpenAI uses
-# for system prompts. We override the default map to keep standard roles.
-_minimax_role_map = {
-    "system": "system",
-    "user": "user",
-    "assistant": "assistant",
-    "tool": "tool",
-    "model": "assistant",
+_openrouter_kwargs = {
+    "api_key": os.getenv("OPENROUTER_API_KEY"),
+    "base_url": "https://openrouter.ai/api/v1",
 }
 
-_minimax_kwargs = {
-    "api_key": os.getenv("MINIMAX_API_KEY"),
-    "base_url": "https://api.minimax.io/v1",
-    "role_map": _minimax_role_map,
-    # MiniMax does not support OpenAI's native structured outputs or json_schema
-    # response_format. Disable to avoid "invalid chat setting (2013)" errors
-    # from the learning/memory subsystem.
-    "supports_native_structured_outputs": False,
-    "supports_json_schema_outputs": False,
-}
+# --- Primary Models (via OpenRouter) ---
 
-TOOL_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
+# GPT-4o-mini: reliable tool calling, structured outputs, 128K context.
+# $0.15/$0.60 per 1M tokens. The workhorse for most agents.
+TOOL_MODEL = OpenAIChat(id="openai/gpt-4o-mini", **_openrouter_kwargs)
 
-# M2.7 Highspeed: identical results, ~100 tps. Best for streaming/fast UX.
-# $0.60/$2.40 per 1M tokens (2x standard, but 2x faster).
-# NOTE: Requires highspeed plan on MiniMax. Falls back to standard if unavailable.
-FAST_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
+# GPT-5-nano: cheapest OpenAI model, good for fast/simple tasks.
+# $0.05/$0.40 per 1M tokens. 400K context. Use for routing and light tasks.
+FAST_MODEL = OpenAIChat(id="openai/gpt-5-nano", **_openrouter_kwargs)
 
-# Reasoning model: M2.7 standard for deep analysis (same model, used where
-# reasoning=True and no tools are needed). Cheaper than highspeed.
-REASONING_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
+# GPT-5-mini: best reasoning at low cost, 400K context.
+# $0.25/$2.00 per 1M tokens. Use for deep analysis and synthesis.
+REASONING_MODEL = OpenAIChat(id="openai/gpt-5-mini", **_openrouter_kwargs)
 
-# --- Groq Models (ONLY for non-tool tasks: routing, evals, followups) ---
-# WARNING: Groq tool calling is broken as of March 2026. Do NOT use Groq
-# models for any agent that has tools=[...]. See agno-agi/agno#4090 and
-# community.groq.com/t/gpt-oss-120b-ignoring-tools/385 for details.
+# --- Groq Models (free, for routing and background tasks) ---
 GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
 GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 
@@ -351,10 +336,7 @@ _learning = LearningMachine(
     model=TOOL_MODEL,
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
-    # user_memory disabled: triggers MiniMax "invalid chat setting (2013)"
-    # internally even though it uses tool calling. The extraction pipeline
-    # has a json_object fallback path that MiniMax rejects.
-    # Re-enable when switching to OpenAI or Anthropic.
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
     entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
 )
@@ -366,7 +348,7 @@ _learning_with_audit = LearningMachine(
     model=TOOL_MODEL,
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
-    # user_memory disabled: same MiniMax json_object incompatibility
+    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
     entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
     decision_log=DecisionLogConfig(mode=LearningMode.ALWAYS),
@@ -545,8 +527,7 @@ knowledge_agent = Agent(
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
-    # update_memory_on_run disabled: same MemoryManager json_object issue with MiniMax.
-    # update_memory_on_run=True,
+    update_memory_on_run=True,
     markdown=True,
     # followups disabled: Groq requires 'json' in prompt for json_object mode
     # and generates invalid tool calls. Re-enable when using a model that
@@ -1930,10 +1911,7 @@ pal = Agent(
     num_history_runs=10,
     add_datetime_to_context=True,
     markdown=True,
-    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
-    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
-    # memory via tool calling instead (works with MiniMax).
-    # enable_agentic_memory=True,
+    enable_agentic_memory=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -2332,10 +2310,7 @@ whabi_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
-    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
-    # memory via tool calling instead (works with MiniMax).
-    # enable_agentic_memory=True,
+    enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2380,10 +2355,7 @@ docflow_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
-    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
-    # memory via tool calling instead (works with MiniMax).
-    # enable_agentic_memory=True,
+    enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2428,10 +2400,7 @@ aurora_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
-    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
-    # memory via tool calling instead (works with MiniMax).
-    # enable_agentic_memory=True,
+    enable_agentic_memory=True,
     compression_manager=_compression,
 )
 
@@ -2476,10 +2445,7 @@ general_support_agent = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     markdown=True,
-    # enable_agentic_memory disabled: MemoryManager uses json_object response_format
-    # which MiniMax doesn't support (error 2013). LearningMachine user_memory handles
-    # memory via tool calling instead (works with MiniMax).
-    # enable_agentic_memory=True,
+    enable_agentic_memory=True,
 )
 
 # --- WhatsApp Support Team (routes to product-specific agents) ---
