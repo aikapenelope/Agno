@@ -2199,10 +2199,149 @@ invoice_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
+# Product Development Team
+# ---------------------------------------------------------------------------
+# Coordinate mode: leader orchestrates back-and-forth between members.
+# Use for: feature prioritization, user feedback analysis, product specs.
+# The leader asks Product Manager to analyze, UX Researcher to validate,
+# and Technical Writer to document — iterating until the output is solid.
+
+_product_manager = Agent(
+    name="Product Manager",
+    role="Prioritize features, write specs, analyze product-market fit",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are a product manager for AikaLabs (Whabi, Docflow, Aurora).",
+        "",
+        "## What you do",
+        "- Analyze user feedback and feature requests",
+        "- Prioritize features by impact vs effort",
+        "- Write product specs and user stories",
+        "- Research competitor features and market trends",
+        "",
+        "## Output format",
+        "Always structure your analysis with:",
+        "- Problem statement",
+        "- Proposed solution",
+        "- Impact (high/medium/low)",
+        "- Effort estimate",
+        "- Success metrics",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_ux_researcher = Agent(
+    name="UX Researcher",
+    role="Analyze user behavior, validate product decisions with data",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are a UX researcher for AikaLabs.",
+        "",
+        "## What you do",
+        "- Analyze user feedback patterns and pain points",
+        "- Validate product decisions with user behavior data",
+        "- Identify usability issues and improvement opportunities",
+        "- Research UX best practices for similar products",
+        "",
+        "## Your perspective",
+        "Always advocate for the user. Challenge assumptions.",
+        "Back opinions with data or established UX principles.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_technical_writer = Agent(
+    name="Technical Writer",
+    role="Document APIs, write guides, create product documentation",
+    model=TOOL_MODEL,
+    tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_skills,
+    instructions=[
+        "You are a technical writer for AikaLabs.",
+        "",
+        "## What you do",
+        "- Write API documentation and integration guides",
+        "- Create user guides and onboarding docs",
+        "- Document product features and workflows",
+        "- Translate technical specs into user-friendly language",
+        "",
+        "## Style",
+        "- Clear, concise, scannable",
+        "- Code examples where relevant",
+        "- Step-by-step instructions",
+        "- Write in Spanish (Latam) unless asked otherwise",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+product_dev_team = Team(
+    id="product-dev",
+    name="Product Development",
+    description=(
+        "Product development team: analyzes feedback, prioritizes features, "
+        "writes specs, and documents decisions. Uses coordinate mode for "
+        "iterative refinement between Product Manager, UX Researcher, and Technical Writer."
+    ),
+    members=[_product_manager, _ux_researcher, _technical_writer],
+    mode=TeamMode.coordinate,
+    model=TOOL_MODEL,  # MiniMax for orchestration
+    max_iterations=5,
+    show_members_responses=False,
+    instructions=[
+        "You lead the Product Development team for AikaLabs.",
+        "",
+        "## Process",
+        "1. Ask Product Manager to analyze the request (features, priorities, specs)",
+        "2. Ask UX Researcher to validate from the user perspective",
+        "3. If documentation is needed, ask Technical Writer to produce it",
+        "4. Synthesize everything into a final recommendation",
+        "",
+        "## Products context",
+        "- Whabi: WhatsApp Business CRM (leads, campaigns, messaging)",
+        "- Docflow: EHR system (health records, documents, compliance)",
+        "- Aurora: Voice-first PWA (Nuxt 3, Clerk, Groq Whisper)",
+    ],
+    db=db,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
 # NEXUS Master Team
 # ---------------------------------------------------------------------------
-# The main orchestrator team with access to all key agents.
-# Uses TOOL_MODEL (MiniMax) for precise routing on complex queries.
+# The father team: routes to individual agents OR to sub-teams.
+# Sub-teams handle complex multi-step requests that need coordination.
+# Individual agents handle simple, focused requests.
 # This is the closest to a "DeepAgent" pattern in Agno — one smart
 # orchestrator that can delegate to any specialist.
 
@@ -2215,6 +2354,7 @@ nexus_master = Team(
         "content, code review, personal assistant, scheduling, billing, or support."
     ),
     members=[
+        # --- Individual agents (simple, focused requests) ---
         research_agent,
         knowledge_agent,
         automation_agent,
@@ -2227,6 +2367,12 @@ nexus_master = Team(
         onboarding_agent,
         trend_scout,
         analytics_agent,
+        # --- Sub-teams (complex, multi-step requests) ---
+        cerebro,
+        content_team,
+        product_dev_team,
+        creative_studio,
+        marketing_latam,
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
@@ -2251,6 +2397,13 @@ nexus_master = Team(
         "- New client setup, product onboarding → Onboarding Agent",
         "- Content creation, video ideas → Trend Scout",
         "- Content performance, metrics → Analytics Agent",
+        "",
+        "## Route to SUB-TEAMS for complex requests:",
+        "- Multi-source research (web + knowledge + CRM) → Cerebro",
+        "- Content production (scripts, storyboards, audits) → Content Factory",
+        "- Feature analysis, product specs, UX feedback → Product Development",
+        "- Image generation, media creation, storyboards → Creative Studio",
+        "- Marketing Latam, copy en español, SEO, redes sociales → Marketing Latam",
         "",
         "## When unsure:",
         "- Money/pricing/payment → Invoice Agent",
@@ -2763,23 +2916,28 @@ competitor_intel_workflow = Workflow(
 
 _image_generator = Agent(
     name="Image Generator",
-    role="Generate detailed image prompts and descriptions",
+    role="Generate images from text prompts using AI",
     model=FAST_MODEL,
+    tools=[NanoBananaTools()] if os.getenv("GOOGLE_API_KEY") else [],
+    tool_call_limit=3,
     instructions=[
         "You are an image generation specialist.",
-        "Given a topic or request, produce a detailed image generation prompt.",
+        "Given a topic or request, create a detailed prompt and generate the image.",
         "",
-        "## Output format",
-        "PROMPT: [detailed prompt for image generation, 50-100 words]",
-        "STYLE: [art style: photorealistic, illustration, 3D render, etc.]",
-        "ASPECT_RATIO: [16:9, 1:1, 9:16, 4:3]",
-        "MOOD: [emotional tone of the image]",
-        "COLORS: [dominant color palette]",
+        "## Process",
+        "1. Craft a detailed image prompt (50-100 words)",
+        "2. Call create_image with the prompt to generate the actual image",
+        "3. Describe the result",
         "",
-        "## Rules",
+        "## Prompt engineering tips",
         "- Be specific about composition, lighting, and subject placement",
-        "- Include negative prompts (what to avoid)",
+        "- Include style keywords: photorealistic, illustration, 3D render, etc.",
+        "- Specify mood and color palette",
         "- Optimize for the target platform (Instagram = 1:1 or 9:16)",
+        "",
+        "## If create_image tool is not available",
+        "Produce a detailed text prompt that can be used with any image generator.",
+        "Format: PROMPT: [prompt] | STYLE: [style] | ASPECT_RATIO: [ratio]",
     ],
     db=db,
     markdown=True,
@@ -2821,6 +2979,207 @@ _media_describer = Agent(
         "Suggest one specific improvement.",
     ],
     db=db,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Creative Studio Team
+# ---------------------------------------------------------------------------
+# Route mode: routes to the right creative specialist.
+# Image requests → Image Generator (NanoBanana/Gemini)
+# Video requests → Video Generator (storyboards)
+# Review/feedback → Media Describer (evaluation)
+
+creative_studio = Team(
+    id="creative-studio",
+    name="Creative Studio",
+    description=(
+        "Creative media team: generates images with AI (NanoBanana/Gemini), "
+        "creates video storyboards, and evaluates media concepts. "
+        "Route image requests here for actual AI-generated images."
+    ),
+    members=[_image_generator, _video_generator, _media_describer],
+    mode=TeamMode.route,
+    respond_directly=True,
+    tool_call_limit=1,
+    model=TOOL_MODEL,
+    show_members_responses=False,
+    instructions=[
+        "You are the Creative Studio router.",
+        "",
+        "## Routing rules (pick ONE member):",
+        "- Image generation, photos, illustrations, thumbnails → Image Generator",
+        "- Video storyboards, reels, TikTok scripts → Video Generator",
+        "- Evaluate, review, or describe media concepts → Media Describer",
+        "",
+        "## Default: Image Generator",
+    ],
+    db=db,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Marketing Latam Team
+# ---------------------------------------------------------------------------
+# Coordinate mode: leader orchestrates between copywriter, SEO strategist,
+# and social media planner. Iterates until the content is optimized for
+# Latam Spanish audiences, SEO, and platform-specific formats.
+
+_latam_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "copywriting-es")),
+            LocalSkills(str(SKILLS_DIR / "seo-geo")),
+            LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "video-hooks")),
+            LocalSkills(str(SKILLS_DIR / "latam-research")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_copywriter_es = Agent(
+    name="Copywriter ES",
+    role="Write persuasive copy in Latam Spanish for all channels",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=3,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_latam_skills,
+    instructions=[
+        "Eres un copywriter experto en español latinoamericano.",
+        "",
+        "## Lo que haces",
+        "- Escribes copy persuasivo para redes sociales, email, y web",
+        "- Usas frameworks: PAS, AIDA, BAB, storytelling",
+        "- Adaptas el tono al canal: profesional (LinkedIn), casual (IG), directo (WhatsApp)",
+        "",
+        "## Reglas de estilo",
+        "- Español neutro latinoamericano (no España)",
+        "- Tuteo natural, no forzado",
+        "- Frases cortas, parrafos de 1-2 lineas",
+        "- Emojis solo en redes sociales, nunca en email formal",
+        "- CTA claro en cada pieza",
+        "",
+        "## Output",
+        "Siempre entrega: headline, body, CTA, y variante alternativa.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_seo_strategist = Agent(
+    name="SEO Strategist",
+    role="Optimize content for Google SEO and AI citation (GEO) in Spanish",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=5)],
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_latam_skills,
+    instructions=[
+        "Eres un estratega SEO/GEO para mercados latinoamericanos.",
+        "",
+        "## Lo que haces",
+        "- Investigas keywords en español con volumen real",
+        "- Optimizas contenido para Google Y para citacion en AI (GEO)",
+        "- Analizas competencia en SERPs hispanohablantes",
+        "- Recomiendas estructura de headings, meta descriptions, schema markup",
+        "",
+        "## GEO (Generative Engine Optimization)",
+        "- Incluir datos citables (estadisticas, fechas, fuentes)",
+        "- Responder preguntas directamente en los primeros parrafos",
+        "- Usar listas y tablas que los LLMs puedan extraer facilmente",
+        "",
+        "## Output",
+        "Siempre entrega: keywords primarias/secundarias, estructura de headings,",
+        "meta title, meta description, y recomendaciones de optimizacion.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+_social_media_planner = Agent(
+    name="Social Media Planner",
+    role="Plan social media strategy and content calendar for Latam audiences",
+    model=TOOL_MODEL,
+    tools=[WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=3,
+    retries=1,
+    pre_hooks=_guardrails,
+    skills=_latam_skills,
+    instructions=[
+        "Eres un social media planner para audiencias latinoamericanas.",
+        "",
+        "## Lo que haces",
+        "- Planificas calendarios de contenido semanal/mensual",
+        "- Defines pilares de contenido por plataforma",
+        "- Recomiendas horarios de publicacion para Latam",
+        "- Analizas tendencias regionales y hashtags",
+        "",
+        "## Plataformas",
+        "- Instagram: reels, carruseles, stories (audiencia principal)",
+        "- TikTok: videos cortos, trends, duets",
+        "- LinkedIn: thought leadership, casos de estudio",
+        "- WhatsApp: broadcasts, listas de difusion",
+        "",
+        "## Output",
+        "Siempre entrega: calendario semanal con fecha, plataforma, formato,",
+        "tema, hook, y CTA para cada publicacion.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+marketing_latam = Team(
+    id="marketing-latam",
+    name="Marketing Latam",
+    description=(
+        "Marketing team for Latin American audiences: copywriting in Spanish, "
+        "SEO/GEO optimization, and social media planning. Uses coordinate mode "
+        "for iterative refinement between Copywriter, SEO Strategist, and Social Media Planner."
+    ),
+    members=[_copywriter_es, _seo_strategist, _social_media_planner],
+    mode=TeamMode.coordinate,
+    model=TOOL_MODEL,
+    max_iterations=5,
+    show_members_responses=False,
+    instructions=[
+        "Lideras el equipo de Marketing Latam para AikaLabs.",
+        "",
+        "## Proceso",
+        "1. Pide al Social Media Planner que defina la estrategia y calendario",
+        "2. Pide al Copywriter ES que escriba el copy para cada pieza",
+        "3. Pide al SEO Strategist que optimice para buscadores y AI",
+        "4. Sintetiza todo en un plan de marketing listo para ejecutar",
+        "",
+        "## Contexto de productos",
+        "- Whabi: CRM de WhatsApp Business (leads, campanas, mensajeria)",
+        "- Docflow: Sistema EHR (historias clinicas, documentos, compliance)",
+        "- Aurora: PWA voice-first (Nuxt 3, Clerk, Groq Whisper)",
+        "",
+        "## Audiencia",
+        "Profesionales y empresas en Latinoamerica. Tono profesional pero cercano.",
+    ],
+    db=db,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
     markdown=True,
 )
 
@@ -3102,8 +3461,14 @@ agent_os = AgentOS(
         email_agent,
         scheduler_agent,
         invoice_agent,
+        _product_manager,
+        _ux_researcher,
+        _technical_writer,
+        _copywriter_es,
+        _seo_strategist,
+        _social_media_planner,
     ],
-    teams=[cerebro, content_team, whatsapp_support_team, nexus_master],
+    teams=[cerebro, content_team, whatsapp_support_team, nexus_master, product_dev_team, creative_studio, marketing_latam],
     workflows=[
         client_research_workflow,
         content_production_workflow,
