@@ -295,33 +295,48 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # ---------------------------------------------------------------------------
 # Model Configuration
 # ---------------------------------------------------------------------------
-# Primary: OpenAI models via OpenRouter (openrouter.ai).
-# OpenRouter provides access to OpenAI, Anthropic, Google, and 300+ models
-# with a single API key. Prices are same as direct API.
+# Hybrid strategy: MiniMax (subscription, unlimited) for most agents.
+# OpenAI via OpenRouter (pay-per-token) only for features MiniMax can't do.
 #
-# Why OpenRouter instead of MiniMax:
-# - MiniMax doesn't support json_object, structured outputs, or reasoning
-# - Every Agno feature works with OpenAI models (memory, reasoning, skills)
-# - GPT-5-nano is cheaper than MiniMax ($0.05 vs $0.30 per 1M input)
+# MiniMax works for: tool calling, skills, learning, compression
+# MiniMax fails for: output_schema, reasoning=True, json_object response_format
 
 _openrouter_kwargs = {
     "api_key": os.getenv("OPENROUTER_API_KEY"),
     "base_url": "https://openrouter.ai/api/v1",
 }
 
-# --- Primary Models (via OpenRouter) ---
+_minimax_role_map = {
+    "system": "system",
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
+    "model": "assistant",
+}
 
-# GPT-4o-mini: reliable tool calling, structured outputs, 128K context.
-# $0.15/$0.60 per 1M tokens. The workhorse for most agents.
-TOOL_MODEL = OpenAIChat(id="openai/gpt-4o-mini", **_openrouter_kwargs)
+_minimax_kwargs = {
+    "api_key": os.getenv("MINIMAX_API_KEY"),
+    "base_url": "https://api.minimax.io/v1",
+    "role_map": _minimax_role_map,
+    "supports_native_structured_outputs": False,
+    "supports_json_schema_outputs": False,
+}
 
-# GPT-5-nano: cheapest OpenAI model, good for fast/simple tasks.
-# $0.05/$0.40 per 1M tokens. 400K context. Use for routing and light tasks.
-FAST_MODEL = OpenAIChat(id="openai/gpt-5-nano", **_openrouter_kwargs)
+# --- MiniMax (subscription, use for everything that works) ---
+TOOL_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
+FAST_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 
-# GPT-5-mini: best reasoning at low cost, 400K context.
-# $0.25/$2.00 per 1M tokens. Use for deep analysis and synthesis.
+# --- OpenAI via OpenRouter (pay-per-token, only for incompatible features) ---
+# Used by: knowledge_agent (reasoning), code_review_agent (reasoning),
+#          _synthesis_agent (output_schema), followups (json_object),
+#          LearningMachine user_memory (json_object internally)
 REASONING_MODEL = OpenAIChat(id="openai/gpt-5-mini", **_openrouter_kwargs)
+
+# Followup model: needs json_object support (MiniMax can't do this)
+FOLLOWUP_MODEL = OpenAIChat(id="openai/gpt-5-nano", **_openrouter_kwargs)
+
+# Learning model: user_memory needs json_object internally
+LEARNING_MODEL = OpenAIChat(id="openai/gpt-4o-mini", **_openrouter_kwargs)
 
 # --- Groq Models (free, for routing and background tasks) ---
 GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
@@ -333,7 +348,7 @@ GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 # tool calling (create_entity, add_fact, add_event) which Groq cannot provide.
 # All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
 _learning = LearningMachine(
-    model=TOOL_MODEL,
+    model=LEARNING_MODEL,  # OpenAI via OpenRouter (user_memory needs json_object)
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
     user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
@@ -345,7 +360,7 @@ _learning = LearningMachine(
 # DecisionLog records WHY the agent made each decision (audit trail).
 # Only on agents where compliance/audit matters — not on every agent.
 _learning_with_audit = LearningMachine(
-    model=TOOL_MODEL,
+    model=LEARNING_MODEL,  # OpenAI via OpenRouter (user_memory needs json_object)
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
     user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
@@ -494,7 +509,7 @@ research_agent = Agent(
     markdown=True,
     followups=True,
     num_followups=3,
-    followup_model=FAST_MODEL,
+    followup_model=FOLLOWUP_MODEL,
     compression_manager=_compression,
 )
 
@@ -531,7 +546,7 @@ knowledge_agent = Agent(
     markdown=True,
     followups=True,
     num_followups=3,
-    followup_model=FAST_MODEL,
+    followup_model=FOLLOWUP_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -656,7 +671,7 @@ automation_agent = Agent(
     markdown=True,
     followups=True,
     num_followups=3,
-    followup_model=FAST_MODEL,
+    followup_model=FOLLOWUP_MODEL,
     compression_manager=_compression,
 )
 
@@ -695,7 +710,7 @@ cerebro = Team(
     markdown=True,
     followups=True,
     num_followups=3,
-    followup_model=FAST_MODEL,
+    followup_model=FOLLOWUP_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -1092,7 +1107,7 @@ content_team = Team(
     markdown=True,
     followups=True,
     num_followups=3,
-    followup_model=FAST_MODEL,
+    followup_model=FOLLOWUP_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -2254,7 +2269,7 @@ nexus_master = Team(
     markdown=True,
     followups=True,
     num_followups=3,
-    followup_model=FAST_MODEL,
+    followup_model=FOLLOWUP_MODEL,
 )
 
 # ---------------------------------------------------------------------------
