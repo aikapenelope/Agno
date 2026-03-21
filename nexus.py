@@ -1423,20 +1423,11 @@ _research_critic = Agent(
     markdown=True,
 )
 
-def _check_report_quality(step_input: StepInput) -> StepOutput:
-    """Check if the research report meets quality threshold (score >= 7)."""
-    content = step_input.previous_step_content or ""
-    is_passing = "PASS" in content.upper() and "REVISE" not in content.upper()
-    return StepOutput(
-        content=content,
-        stop=is_passing,  # Stop the loop if quality is sufficient
-    )
-
 deep_research_workflow = Workflow(
     name="deep-research",
     description=(
         "Production deep research v3: plan → 3 parallel searchers → "
-        "reflection loop → synthesis → quality scoring loop (max 2 revisions)."
+        "reflection loop → synthesis → quality review → final polished report."
     ),
     db=SqliteDb(
         session_table="deep_research_session",
@@ -1463,15 +1454,11 @@ deep_research_workflow = Workflow(
         ),
         # Phase 4: Synthesize into structured report + save to knowledge/
         Step(name="Synthesize", agent=_research_synthesizer),
-        # Phase 5: Quality scoring loop — critic scores, synthesizer revises if < 7
-        Loop(
-            steps=[
-                Step(name="Quality Review", agent=_research_critic),
-                Step(name="Check Quality", executor=_check_report_quality),
-            ],
-            max_iterations=2,
-            forward_iteration_output=True,
-        ),
+        # Phase 5: Quality scoring — critic scores the report
+        Step(name="Quality Review", agent=_research_critic),
+        # Phase 6: Final synthesis — incorporates critic feedback into polished report
+        # This is always the last step, so the user sees the final report (not the score).
+        Step(name="Final Report", agent=_research_synthesizer),
     ],
 )
 
