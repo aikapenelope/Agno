@@ -387,7 +387,10 @@ _compression = CompressionManager(
 # Prompt injection blocks jailbreak attempts and instruction overrides.
 
 _guardrails = [
-    PIIDetectionGuardrail(),
+    PIIDetectionGuardrail(
+        mask_pii=True,           # Mask instead of blocking (fewer false positives)
+        enable_phone_check=False, # Too many false positives (any 10-digit number triggers)
+    ),
     PromptInjectionGuardrail(),
 ]
 
@@ -699,7 +702,7 @@ cerebro = Team(
         "Do NOT add commentary. Return the member's response directly.",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader (routes only, members have their own learning)
     enable_session_summaries=False,
     add_history_to_context=False,
     show_members_responses=True,
@@ -1090,7 +1093,7 @@ content_team = Team(
         "Tell the user: 'Use the content-production workflow for the full pipeline.'",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader (routes only, members have their own learning)
     enable_session_summaries=False,
     add_history_to_context=False,
     show_members_responses=True,
@@ -2217,7 +2220,8 @@ nexus_master = Team(
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
-    pre_hooks=_guardrails,
+    # No pre_hooks on team leader -- guardrails run on individual member agents.
+    # PII guardrail on the leader blocks messages before routing, causing errors.
     determine_input_for_members=False,
     instructions=[
         "You are NEXUS, the master orchestrator for AikaLabs.",
@@ -2246,7 +2250,9 @@ nexus_master = Team(
         "- Default → Research Agent",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader -- it only routes, doesn't need search_learnings/save_learning.
+    # Individual member agents have their own learning. Adding learning here gives the leader
+    # extra tools that MiniMax calls instead of delegate_task_to_member.
     enable_session_summaries=True,
     add_history_to_context=True,
     num_history_runs=5,
@@ -2492,7 +2498,7 @@ whatsapp_support_team = Team(
         "Do NOT add commentary. Return the agent's response directly.",
     ],
     db=db,
-    learning=_learning,
+    # No learning on team leader (routes only, support agents have their own learning)
     enable_session_summaries=False,
     add_history_to_context=True,
     num_history_runs=3,
