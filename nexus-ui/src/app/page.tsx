@@ -55,7 +55,7 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("message", userMessage.content);
-      formData.append("stream", "true");
+      formData.append("stream", "false");
       formData.append("session_id", sessionId);
       formData.append("user_id", "nexus-ui-user");
 
@@ -68,89 +68,24 @@ export default function Home() {
         throw new Error(`HTTP ${response.status}: ${await response.text()}`);
       }
 
-      // Parse SSE stream
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      const data = await response.json();
+
+      const content =
+        typeof data.content === "string"
+          ? data.content
+          : data.content?.text ||
+            data.messages?.[data.messages.length - 1]?.content ||
+            JSON.stringify(data);
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
-        content: "",
-        agent: "NEXUS",
+        content: content,
+        agent: data.agent_name || "NEXUS",
         timestamp: new Date(),
       };
+
       setMessages((prev) => [...prev, assistantMessage]);
-      setLoading(false);
-
-      if (reader) {
-        let buffer = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          let currentEvent = "";
-          for (const line of lines) {
-            // Track SSE event type
-            if (line.startsWith("event: ")) {
-              currentEvent = line.slice(7).trim();
-              continue;
-            }
-
-            // Only process data lines for content events
-            if (!line.startsWith("data: ")) continue;
-
-            // Skip ALL intermediate events — only show final response content
-            const skipEvents = [
-              "ToolCallStarted", "ToolCallCompleted", "ToolCallError",
-              "ReasoningStarted", "ReasoningStep", "ReasoningContentDelta", "ReasoningCompleted",
-              "MemoryUpdateStarted", "MemoryUpdateCompleted",
-              "CompressionStarted", "CompressionCompleted",
-              "PreHookStarted", "PreHookCompleted",
-              "PostHookStarted", "PostHookCompleted",
-              "ModelRequestStarted", "ModelRequestCompleted",
-              "SessionSummaryStarted", "SessionSummaryCompleted",
-              "RunStarted", "RunContentCompleted",
-              // Team-specific events
-              "TeamRunStarted", "TeamToolCallStarted", "TeamToolCallCompleted",
-              "TeamReasoningStarted", "TeamReasoningStep", "TeamReasoningCompleted",
-              "TeamMemoryUpdateStarted", "TeamMemoryUpdateCompleted",
-              "TeamModelRequestStarted", "TeamModelRequestCompleted",
-              "TeamRunContentCompleted",
-            ];
-            if (skipEvents.includes(currentEvent)) continue;
-
-            try {
-              const data = JSON.parse(line.slice(6));
-
-              // Skip tool call results and non-text content
-              if (data.tool_calls || data.tool_call_id || data.tools) continue;
-              if (data.event && skipEvents.includes(data.event)) continue;
-
-              const chunk =
-                typeof data.content === "string" ? data.content :
-                typeof data === "string" ? data : "";
-
-              if (chunk && chunk.trim()) {
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last && last.id === assistantMessage.id) {
-                    last.content += chunk;
-                    if (data.agent_name) last.agent = data.agent_name;
-                  }
-                  return [...updated];
-                });
-              }
-            } catch {
-              // Skip non-JSON lines
-            }
-          }
-        }
-      }
     } catch (error) {
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
