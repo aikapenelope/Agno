@@ -697,7 +697,6 @@ _trend_scout_skills = (
         loaders=[
             LocalSkills(str(SKILLS_DIR / "content-research")),
             LocalSkills(str(SKILLS_DIR / "content-strategy")),
-            LocalSkills(str(SKILLS_DIR / "video-hooks")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -710,8 +709,6 @@ _scriptwriter_skills = (
         loaders=[
             LocalSkills(str(SKILLS_DIR / "content-strategy")),
             LocalSkills(str(SKILLS_DIR / "remotion-video")),
-            LocalSkills(str(SKILLS_DIR / "copywriting-es")),
-            LocalSkills(str(SKILLS_DIR / "video-hooks")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -729,9 +726,6 @@ _deep_search_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "deep-search")),
-            LocalSkills(str(SKILLS_DIR / "github-research")),
-            LocalSkills(str(SKILLS_DIR / "community-research")),
-            LocalSkills(str(SKILLS_DIR / "market-intelligence")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -881,8 +875,6 @@ _whabi_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "whabi")),
-            LocalSkills(str(SKILLS_DIR / "whatsapp-business-api")),
-            LocalSkills(str(SKILLS_DIR / "crm-patterns")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -894,7 +886,6 @@ _docflow_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "docflow")),
-            LocalSkills(str(SKILLS_DIR / "hipaa-compliance")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -906,7 +897,6 @@ _aurora_skills = (
     Skills(
         loaders=[
             LocalSkills(str(SKILLS_DIR / "aurora")),
-            LocalSkills(str(SKILLS_DIR / "pwa-troubleshooting")),
             LocalSkills(str(SKILLS_DIR / "agent-ops")),
         ]
     )
@@ -1755,18 +1745,6 @@ code_review_agent = Agent(
 # Learns query patterns, metric definitions, and business rules over time.
 # NOTE: No direct PostgreSQL access (Data Plane is remote). Uses Twenty MCP.
 
-_dash_skills = (
-    Skills(
-        loaders=[
-            LocalSkills(str(SKILLS_DIR / "crm-patterns")),
-            LocalSkills(str(SKILLS_DIR / "competitive-analysis")),
-            LocalSkills(str(SKILLS_DIR / "agent-ops")),
-        ]
-    )
-    if SKILLS_DIR.exists()
-    else None
-)
-
 _dash_tools: list = [
     CalculatorTools(),
     PythonTools(),
@@ -1783,7 +1761,7 @@ dash = Agent(
     retries=1,
     pre_hooks=_guardrails,
     post_hooks=[_quality_eval],
-    skills=_dash_skills,
+    skills=_skills,
     instructions=[
         "You are Dash, a self-learning data analytics agent.",
         "",
@@ -1991,6 +1969,266 @@ onboarding_agent = Agent(
     num_history_runs=10,
     add_datetime_to_context=True,
     markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Email Agent
+# ---------------------------------------------------------------------------
+# Drafts and sends emails for follow-ups, notifications, and outreach.
+# Uses EmailTools (requires EMAIL_SENDER + EMAIL_PASSKEY env vars).
+
+_email_tools: list = []
+if os.getenv("EMAIL_SENDER") and os.getenv("EMAIL_PASSKEY"):
+    _email_tools.append(EmailTools())
+
+email_agent = Agent(
+    name="Email Agent",
+    role="Draft and send professional emails for follow-ups, notifications, and outreach",
+    model=TOOL_MODEL,
+    tools=_email_tools or [WebSearchTools(fixed_max_results=3)],
+    tool_call_limit=3,
+    retries=1,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=(
+        Skills(
+            loaders=[
+                LocalSkills(str(SKILLS_DIR / "copywriting-es")),
+                LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+                LocalSkills(str(SKILLS_DIR / "agent-ops")),
+            ]
+        )
+        if SKILLS_DIR.exists()
+        else None
+    ),
+    instructions=[
+        "You are an email specialist. You draft and send professional emails.",
+        "You write in Spanish (Latin America neutral) unless told otherwise.",
+        "",
+        "## What you handle",
+        "- Follow-up emails after meetings or calls",
+        "- Client onboarding welcome emails",
+        "- Payment reminders and invoice notifications",
+        "- Newsletter drafts for product updates",
+        "- Cold outreach for lead generation",
+        "",
+        "## Email Structure",
+        "1. Subject line: clear, specific, under 50 chars",
+        "2. Opening: personalized, reference previous interaction",
+        "3. Body: 2-3 short paragraphs, one idea per paragraph",
+        "4. CTA: one clear action (reply, click, schedule)",
+        "5. Signature: professional, with contact info",
+        "",
+        "## Rules",
+        "- ALWAYS show the draft to the user before sending",
+        "- Never send without explicit user confirmation",
+        "- If EmailTools is not configured, draft the email as text",
+        "- Use formal 'usted' for first contact, informal 'tu' for existing clients",
+        "- No attachments in cold outreach (spam filters)",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Scheduler Agent
+# ---------------------------------------------------------------------------
+# Creates reminders, tasks, and calendar entries via Twenty CRM and n8n.
+
+scheduler_agent = Agent(
+    name="Scheduler Agent",
+    role="Create reminders, schedule tasks, and manage calendar entries",
+    model=TOOL_MODEL,
+    tools=(_automation_tools or []) + [CalculatorTools()],  # type: ignore[operator]
+    tool_call_limit=4,
+    retries=1,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=(
+        Skills(
+            loaders=[
+                LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+                LocalSkills(str(SKILLS_DIR / "agent-ops")),
+            ]
+        )
+        if SKILLS_DIR.exists()
+        else None
+    ),
+    instructions=[
+        "You are a scheduling specialist. You create tasks, reminders, and events.",
+        "You respond in Spanish (Latin America neutral).",
+        "",
+        "## What you handle",
+        "- 'Recuerdame llamar a Juan el viernes' → create task in Twenty CRM",
+        "- 'Agenda reunion con el equipo el lunes a las 10' → create task with date",
+        "- 'Que tengo pendiente esta semana?' → list tasks from CRM",
+        "- 'Marca como completada la tarea de...' → update task status",
+        "",
+        "## Process",
+        "1. Parse the user's request for: action, date/time, people involved",
+        "2. If date is relative ('manana', 'el viernes'), calculate the actual date",
+        "3. Create the task/reminder in Twenty CRM",
+        "4. Confirm what was created with the exact date and details",
+        "",
+        "## Rules",
+        "- Always confirm the date and time before creating",
+        "- Use America/Bogota timezone unless told otherwise",
+        "- If no time specified, default to 9:00 AM",
+        "- If no date specified, ask the user",
+        "- Link tasks to people in CRM when mentioned by name",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Invoice Agent
+# ---------------------------------------------------------------------------
+# Generates quotes, invoices, and tracks payments via CRM.
+
+invoice_agent = Agent(
+    name="Invoice Agent",
+    role="Generate quotes, invoices, and track payments for clients",
+    model=TOOL_MODEL,
+    tools=[confirm_payment, log_support_ticket] + (_automation_tools or []) + [CalculatorTools(), PythonTools()],  # type: ignore[operator]
+    tool_call_limit=5,
+    retries=1,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=(
+        Skills(
+            loaders=[
+                LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+                LocalSkills(str(SKILLS_DIR / "agent-ops")),
+            ]
+        )
+        if SKILLS_DIR.exists()
+        else None
+    ),
+    instructions=[
+        "You are a billing specialist. You generate quotes, invoices, and track payments.",
+        "You respond in Spanish (Latin America neutral).",
+        "",
+        "## What you handle",
+        "- Generate price quotes for Whabi/Docflow/Aurora plans",
+        "- Create invoice summaries (not actual PDF invoices)",
+        "- Track payment status via CRM notes",
+        "- Calculate totals with taxes (IVA 19% for Colombia)",
+        "- Record payment confirmations (requires @approval)",
+        "",
+        "## Pricing Reference",
+        "- Whabi Starter: $49/mes | Pro: $149/mes | Enterprise: custom",
+        "- Docflow Basic: $99/mes | Pro: $249/mes | Enterprise: custom",
+        "- Aurora Free: $0 | Pro: $29/mes | Business: $79/mes",
+        "",
+        "## Invoice Format",
+        "```",
+        "COTIZACION / FACTURA",
+        "Cliente: [nombre]",
+        "Producto: [producto] - Plan [plan]",
+        "Periodo: [mes/ano]",
+        "Subtotal: $[amount]",
+        "IVA (19%): $[tax]",
+        "Total: $[total]",
+        "Metodo de pago: [transferencia/tarjeta/paypal]",
+        "```",
+        "",
+        "## Rules",
+        "- ALWAYS use confirm_payment for payment confirmations",
+        "- Never confirm a payment without @approval",
+        "- Log every billing interaction via log_support_ticket",
+        "- If client asks for custom pricing, escalate to human",
+        "- Prices are in USD unless client specifies local currency",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+# ---------------------------------------------------------------------------
+# NEXUS Master Team
+# ---------------------------------------------------------------------------
+# The main orchestrator team with access to all key agents.
+# Uses TOOL_MODEL (MiniMax) for precise routing on complex queries.
+# This is the closest to a "DeepAgent" pattern in Agno — one smart
+# orchestrator that can delegate to any specialist.
+
+nexus_master = Team(
+    name="NEXUS",
+    description=(
+        "Master orchestrator with access to all NEXUS agents. "
+        "Routes any request to the best specialist: research, analytics, "
+        "content, code review, personal assistant, scheduling, billing, or support."
+    ),
+    members=[
+        research_agent,
+        knowledge_agent,
+        automation_agent,
+        dash,
+        pal,
+        code_review_agent,
+        email_agent,
+        scheduler_agent,
+        invoice_agent,
+        onboarding_agent,
+        trend_scout,
+        analytics_agent,
+    ],
+    mode=TeamMode.route,
+    model=TOOL_MODEL,  # MiniMax for precise routing (not Groq)
+    pre_hooks=_guardrails,
+    determine_input_for_members=False,
+    instructions=[
+        "You are NEXUS, the master orchestrator for AikaLabs.",
+        "Route each request to the BEST specialist agent.",
+        "",
+        "## Routing rules (pick ONE agent):",
+        "- Web research, news, trends: → Research Agent",
+        "- Internal docs, knowledge base: → Knowledge Agent",
+        "- n8n workflows, CRM operations, Obsidian: → Automation Agent",
+        "- Business metrics, analytics, data questions: → Dash",
+        "- Personal notes, bookmarks, reminders: → Pal",
+        "- Code review, debugging, programming: → Code Review Agent",
+        "- Email drafting, follow-ups, outreach: → Email Agent",
+        "- Scheduling, tasks, calendar, reminders: → Scheduler Agent",
+        "- Quotes, invoices, payments, billing: → Invoice Agent",
+        "- New client setup, product onboarding: → Onboarding Agent",
+        "- Content creation, video ideas: → Trend Scout",
+        "- Content performance, metrics: → Analytics Agent",
+        "",
+        "## When unsure:",
+        "- If it mentions money/pricing/payment → Invoice Agent",
+        "- If it mentions dates/times/schedule → Scheduler Agent",
+        "- If it mentions a file or code → Code Review Agent",
+        "- If it's a personal request → Pal",
+        "- If it's about business data → Dash",
+        "- Default fallback → Research Agent",
+        "",
+        "Do NOT add commentary. Return the agent's response directly.",
+    ],
+    db=db,
+    learning=_learning,
+    enable_session_summaries=True,
+    add_history_to_context=True,
+    num_history_runs=5,
+    show_members_responses=True,
+    add_datetime_to_context=True,
+    markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=GROQ_FAST_MODEL,
 )
 
 # ---------------------------------------------------------------------------
@@ -2795,8 +3033,11 @@ agent_os = AgentOS(
         dash,
         pal,
         onboarding_agent,
+        email_agent,
+        scheduler_agent,
+        invoice_agent,
     ],
-    teams=[cerebro, content_team, whatsapp_support_team],
+    teams=[cerebro, content_team, whatsapp_support_team, nexus_master],
     workflows=[
         client_research_workflow,
         content_production_workflow,

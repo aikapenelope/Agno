@@ -146,24 +146,17 @@ skills/
 
 | Skill | Domain | Used By |
 |-------|--------|---------|
-| **Research Skills** | | |
-| `deep-search/` | Query engineering, source quality, snippet extraction | All research scouts |
-| `deep-synthesis/` | Report structure, confidence scoring, analytical writing | Research Synthesizer |
-| `github-research/` | Repo analysis, PR tracking, OSS health assessment | All research scouts |
-| `community-research/` | Reddit, HN, Twitter sentiment, opinion mining | All research scouts |
-| `market-intelligence/` | Market data, competitor analysis, pricing intel | All research scouts |
-| **Product Skills** | | |
-| `whabi/` | WhatsApp CRM, leads, campaigns, message templates | Whabi Support, Onboarding |
-| `docflow/` | EHR, compliance, documents, retention periods | Docflow Support, Onboarding |
-| `aurora/` | Voice PWA, commands, Whisper, troubleshooting | Aurora Support, Onboarding |
-| **Content Skills** | | |
-| `content-research/` | Trend research, content briefs, source evaluation | Trend Scout |
-| `content-strategy/` | Content pillars, hooks, formats, brand voice | Scriptwriter |
-| `remotion-video/` | Video production, storyboards, animations | Scriptwriter |
-| `campaign-analytics/` | Social media metrics, KPIs, reporting | Analytics Agent |
-| `seo-geo/` | SEO + GEO optimization, listicle structure | Keyword Researcher, Article Writer |
-| **Operations** | | |
-| `agent-ops/` | Tool budgeting, error handling, escalation rules | Multiple agents |
+| `whabi/` | WhatsApp CRM, leads, campaigns | Whabi Support Agent |
+| `docflow/` | EHR, compliance, documents | Docflow Support Agent |
+| `aurora/` | Voice PWA, commands, Whisper | Aurora Support Agent |
+| `content-research/` | Trend research, content strategy | Trend Scout |
+| `content-strategy/` | Content pillars, hooks, formats | Scriptwriter |
+| `remotion-video/` | Video production, storyboards | Scriptwriter |
+| `campaign-analytics/` | Social media metrics, KPIs | Analytics Agent |
+| `deep-search/` | Query engineering, source quality | All research scouts |
+| `deep-synthesis/` | Report structure, confidence scoring | Research Synthesizer |
+| `seo-geo/` | SEO + GEO optimization | Keyword Researcher, Article Writer |
+| `agent-ops/` | General agent operations | Multiple agents |
 
 ---
 
