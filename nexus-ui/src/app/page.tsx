@@ -53,15 +53,15 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/v1/teams/NEXUS/runs`, {
+      const formData = new FormData();
+      formData.append("message", userMessage.content);
+      formData.append("stream", "false");
+      formData.append("session_id", sessionId);
+      formData.append("user_id", "nexus-ui-user");
+
+      const response = await fetch(`${API_URL}/teams/nexus/runs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: userMessage.content,
-          stream: false,
-          session_id: sessionId,
-          user_id: "nexus-ui-user",
-        }),
+        body: formData,
       });
 
       if (!response.ok) {
