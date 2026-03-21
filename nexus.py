@@ -2371,6 +2371,7 @@ nexus_master = Team(
         cerebro,
         content_team,
         product_dev_team,
+        creative_studio,
     ],
     mode=TeamMode.route,
     model=TOOL_MODEL,  # MiniMax for precise routing (quality over speed)
@@ -2400,6 +2401,7 @@ nexus_master = Team(
         "- Multi-source research (web + knowledge + CRM) → Cerebro",
         "- Content production (scripts, storyboards, audits) → Content Factory",
         "- Feature analysis, product specs, UX feedback → Product Development",
+        "- Image generation, media creation, storyboards → Creative Studio",
         "",
         "## When unsure:",
         "- Money/pricing/payment → Invoice Agent",
@@ -2912,23 +2914,28 @@ competitor_intel_workflow = Workflow(
 
 _image_generator = Agent(
     name="Image Generator",
-    role="Generate detailed image prompts and descriptions",
+    role="Generate images from text prompts using AI",
     model=FAST_MODEL,
+    tools=[NanoBananaTools()] if os.getenv("GOOGLE_API_KEY") else [],
+    tool_call_limit=3,
     instructions=[
         "You are an image generation specialist.",
-        "Given a topic or request, produce a detailed image generation prompt.",
+        "Given a topic or request, create a detailed prompt and generate the image.",
         "",
-        "## Output format",
-        "PROMPT: [detailed prompt for image generation, 50-100 words]",
-        "STYLE: [art style: photorealistic, illustration, 3D render, etc.]",
-        "ASPECT_RATIO: [16:9, 1:1, 9:16, 4:3]",
-        "MOOD: [emotional tone of the image]",
-        "COLORS: [dominant color palette]",
+        "## Process",
+        "1. Craft a detailed image prompt (50-100 words)",
+        "2. Call create_image with the prompt to generate the actual image",
+        "3. Describe the result",
         "",
-        "## Rules",
+        "## Prompt engineering tips",
         "- Be specific about composition, lighting, and subject placement",
-        "- Include negative prompts (what to avoid)",
+        "- Include style keywords: photorealistic, illustration, 3D render, etc.",
+        "- Specify mood and color palette",
         "- Optimize for the target platform (Instagram = 1:1 or 9:16)",
+        "",
+        "## If create_image tool is not available",
+        "Produce a detailed text prompt that can be used with any image generator.",
+        "Format: PROMPT: [prompt] | STYLE: [style] | ASPECT_RATIO: [ratio]",
     ],
     db=db,
     markdown=True,
@@ -2970,6 +2977,43 @@ _media_describer = Agent(
         "Suggest one specific improvement.",
     ],
     db=db,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
+# Creative Studio Team
+# ---------------------------------------------------------------------------
+# Route mode: routes to the right creative specialist.
+# Image requests → Image Generator (NanoBanana/Gemini)
+# Video requests → Video Generator (storyboards)
+# Review/feedback → Media Describer (evaluation)
+
+creative_studio = Team(
+    id="creative-studio",
+    name="Creative Studio",
+    description=(
+        "Creative media team: generates images with AI (NanoBanana/Gemini), "
+        "creates video storyboards, and evaluates media concepts. "
+        "Route image requests here for actual AI-generated images."
+    ),
+    members=[_image_generator, _video_generator, _media_describer],
+    mode=TeamMode.route,
+    respond_directly=True,
+    tool_call_limit=1,
+    model=TOOL_MODEL,
+    show_members_responses=False,
+    instructions=[
+        "You are the Creative Studio router.",
+        "",
+        "## Routing rules (pick ONE member):",
+        "- Image generation, photos, illustrations, thumbnails → Image Generator",
+        "- Video storyboards, reels, TikTok scripts → Video Generator",
+        "- Evaluate, review, or describe media concepts → Media Describer",
+        "",
+        "## Default: Image Generator",
+    ],
+    db=db,
+    add_datetime_to_context=True,
     markdown=True,
 )
 
@@ -3255,7 +3299,7 @@ agent_os = AgentOS(
         _ux_researcher,
         _technical_writer,
     ],
-    teams=[cerebro, content_team, whatsapp_support_team, nexus_master, product_dev_team],
+    teams=[cerebro, content_team, whatsapp_support_team, nexus_master, product_dev_team, creative_studio],
     workflows=[
         client_research_workflow,
         content_production_workflow,
