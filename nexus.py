@@ -348,11 +348,13 @@ GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 # tool calling (create_entity, add_fact, add_event) which Groq cannot provide.
 # All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
 _learning = LearningMachine(
-    model=LEARNING_MODEL,  # OpenAI via OpenRouter (user_memory needs json_object)
+    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling, not json_object)
     knowledge=learnings_knowledge,
-    user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
-    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
-    entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
+    # AGENTIC mode: agent decides when to update (1 tool call when relevant)
+    # ALWAYS mode caused 100+ update_profile calls per request = 784K tokens
+    user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
+    user_memory=UserMemoryConfig(mode=LearningMode.AGENTIC),
+    entity_memory=EntityMemoryConfig(mode=LearningMode.AGENTIC),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
 )
 
@@ -360,13 +362,13 @@ _learning = LearningMachine(
 # DecisionLog records WHY the agent made each decision (audit trail).
 # Only on agents where compliance/audit matters — not on every agent.
 _learning_with_audit = LearningMachine(
-    model=LEARNING_MODEL,  # OpenAI via OpenRouter (user_memory needs json_object)
+    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling, not json_object)
     knowledge=learnings_knowledge,
-    user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
-    user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
-    entity_memory=EntityMemoryConfig(mode=LearningMode.ALWAYS),
+    user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
+    user_memory=UserMemoryConfig(mode=LearningMode.AGENTIC),
+    entity_memory=EntityMemoryConfig(mode=LearningMode.AGENTIC),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
-    decision_log=DecisionLogConfig(mode=LearningMode.ALWAYS),
+    decision_log=DecisionLogConfig(mode=LearningMode.AGENTIC),
 )
 
 # --- Context Compression ---
