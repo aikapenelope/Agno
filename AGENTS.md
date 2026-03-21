@@ -1,8 +1,8 @@
 # AGENTS.md — NEXUS Production Architecture
 
 Instructions for AI agents and humans working on this codebase.
-Based on Agno's official patterns (`.cursorrules`, `AGENTS.md`, cookbook/01_demo),
-community best practices, and lessons learned in production.
+Based on Agno's official patterns, lessons learned with MiniMax M2.7,
+and production debugging across 20+ iterations.
 
 ---
 
@@ -19,289 +19,245 @@ Is the task a single, clear objective?
 | Pattern | Use When | Example |
 |---------|----------|---------|
 | **Agent** | One clear task, solvable with tools + instructions | Web search, CRM lookup, code review |
-| **Team** | Multiple specialists, dynamic coordination | Customer support routing, research delegation |
-| **Workflow** | Sequential steps, audit trail, repeatable | Deep research pipeline, content production, SEO audit |
-
-**Rule: Start with a single agent. Only add Teams/Workflows when a single agent can't do it.**
+| **Team** | Multiple specialists, dynamic coordination | Customer support routing, NEXUS master |
+| **Workflow** | Sequential steps, audit trail, repeatable | Deep research, content production |
 
 ---
 
 ## Model Assignment Rules
 
-Groq tool calling is broken as of March 2026 (agno-agi/agno#4090).
-No constrained decoding, no fix ETA from Groq.
-
 | Task Type | Model | Why |
 |-----------|-------|-----|
 | **Tool calling** (search, CRM, files) | `TOOL_MODEL` (MiniMax M2.7) | Reliable tool calling, 200K context |
-| **Streaming/fast UX** | `FAST_MODEL` (MiniMax M2.7) | Same quality, use highspeed when plan supports it |
-| **Reasoning** (analysis, synthesis) | `REASONING_MODEL` (MiniMax M2.7) | Deep analysis without tools |
-| **Routing** (team leader decisions) | `GROQ_ROUTING_MODEL` (gpt-oss-20b) | No tools needed, ultra fast, cheap |
-| **Background** (followups, evals) | `GROQ_FAST_MODEL` (llama-3.1-8b) | No tools, text generation only |
+| **Team routing** (NEXUS, WhatsApp Support) | `TOOL_MODEL` (MiniMax M2.7) | Precise routing, no tool confusion |
+| **Reasoning** (analysis, synthesis) | `REASONING_MODEL` (MiniMax M2.7) | Deep analysis |
+| **Groq routing** (Cerebro, Content Factory) | `GROQ_ROUTING_MODEL` (gpt-oss-20b) | Fast, cheap, no tools needed |
+| **Background** (evals only) | `GROQ_FAST_MODEL` (llama-3.1-8b) | No tools, text generation only |
 | **Learning extraction** | `TOOL_MODEL` (MiniMax M2.7) | EntityMemory needs tool calling |
-| **Compression** | `FAST_MODEL` (MiniMax M2.7) | Text summarization, no tools |
+| **Compression** | `FAST_MODEL` (MiniMax M2.7) | Text summarization |
 
-**NEVER use Groq for any agent that has `tools=[...]`.**
+### MiniMax Incompatibilities (March 2026)
+
+These features require `response_format: json_object` which MiniMax rejects with error 2013:
+
+| Feature | Status | Alternative |
+|---------|--------|-------------|
+| `user_memory` (LearningMachine) | Disabled | `user_profile` + `entity_memory` work via tool calling |
+| `enable_agentic_memory` (MemoryManager) | Disabled | LearningMachine handles memory |
+| `update_memory_on_run` (MemoryManager) | Disabled | LearningMachine handles memory |
+| `output_schema` on agents | Don't use | Use instructions to guide format |
+| `followups` with Groq | Disabled | Groq requires 'json' in prompt |
+
+Re-enable when switching to OpenAI or Anthropic.
 
 ---
 
 ## Agent Construction Pattern
 
-Follow the official Agno cookbook structure:
-
 ```python
-# ---------------------------------------------------------------------------
-# [Agent Name] — [One-line description]
-# ---------------------------------------------------------------------------
-
 agent_name = Agent(
-    name="Agent Name",                    # Display name in AgentOS UI
-    role="One sentence describing role",  # Used by team leaders for routing
-    model=TOOL_MODEL,                     # See model assignment rules above
+    name="Agent Name",
+    role="One sentence describing role",
+    model=TOOL_MODEL,
 
-    # --- Tools (only what this agent needs) ---
-    tools=[SpecificTool()],               # Minimal tool set, no redundancy
-    tool_call_limit=3,                    # Prevent infinite tool loops
-    retries=1,                            # One retry for transient failures
+    # --- Tools ---
+    tools=[SpecificTool()],
+    tool_call_limit=5,                    # Prevent infinite loops (3 for scouts, 5 for others)
+    retries=1,
 
     # --- Knowledge & Skills ---
-    skills=_domain_skills,                # Lazy-loaded domain instructions
+    skills=_domain_skills,                # Lazy-loaded via get_skill_instructions tool
     knowledge=knowledge_base,             # Only if agent needs RAG
     search_knowledge=True,                # Required to enable agentic RAG
 
-    # --- Learning ---
-    learning=_learning,                   # LearningMachine for memory
-    # NOTE: LearningMachine model must support tool calling (not Groq)
+    # --- Learning (works with MiniMax) ---
+    learning=_learning,                   # user_profile + entity_memory + learned_knowledge
+    # NOTE: user_memory disabled (json_object incompatible with MiniMax)
 
-    # --- Guardrails & Evals ---
-    pre_hooks=_guardrails,                # PII detection, prompt injection
-    post_hooks=[_quality_eval],           # Background quality scoring
+    # --- Guardrails ---
+    pre_hooks=_guardrails,                # PII masking + prompt injection detection
+    post_hooks=[_quality_eval],           # Background quality scoring (heuristic, no LLM call)
 
-    # --- Instructions (the most important part) ---
-    instructions=[
-        "You are [role]. You [do what].",
-        "",
-        "## What you handle",
-        "- [Capability 1]",
-        "- [Capability 2]",
-        "",
-        "## Process",
-        "1. [Step 1]",
-        "2. [Step 2]",
-        "",
-        "## Output format",
-        "[Exact format the agent should produce]",
-        "",
-        "## Rules",
-        "- [Hard constraint 1]",
-        "- [Hard constraint 2]",
-    ],
+    # --- Instructions ---
+    instructions=[...],
 
     # --- Context ---
     db=db,
     add_history_to_context=True,
-    num_history_runs=3,                   # 5 for support agents, 3 for others
+    num_history_runs=3,
     add_datetime_to_context=True,
     markdown=True,
-
-    # --- Performance ---
-    compression_manager=_compression,     # Only for agents with heavy tool output
 )
 ```
 
-### Critical Rules (from Agno's .cursorrules)
+---
 
-- **NEVER create agents in loops** — reuse them for performance
-- **PostgreSQL in production**, SQLite for dev only
-- **Start with single agent**, scale up only when needed
-- **Both sync and async** — all public methods need both variants
+## Team Construction Pattern (CRITICAL — learned from production)
+
+```python
+team = Team(
+    name="Team Name",
+    id="team-id",                         # Required for API access (/teams/team-id/runs)
+    members=[agent_a, agent_b, agent_c],
+    mode=TeamMode.route,
+    respond_directly=True,                # CRITICAL: stop after routing, return member response
+    tool_call_limit=1,                    # CRITICAL: only ONE tool call (delegate_task_to_member)
+    model=TOOL_MODEL,                     # MiniMax for precise routing
+    # NO pre_hooks — guardrails on individual agents, not team leader
+    # NO learning — adds extra tools that confuse routing
+    determine_input_for_members=False,
+    show_members_responses=False,         # respond_directly handles this
+    instructions=[
+        "You are the [team name] router.",
+        "You select which team member should handle each request.",
+        "",
+        "## Select ONE member:",
+        "- [pattern] → [Agent Name]",
+        "- [pattern] → [Agent Name]",
+        "- Default → [Fallback Agent]",
+    ],
+    db=db,
+    add_history_to_context=True,
+    num_history_runs=3,
+    markdown=True,
+)
+```
+
+### Why these settings matter
+
+| Setting | Why |
+|---------|-----|
+| `respond_directly=True` | Sets `stop_after_tool_call=True` on delegate function. Leader routes and stops. |
+| `tool_call_limit=1` | Forces exactly ONE tool call. Without this, MiniMax calls skills/learning tools instead of routing. |
+| No `learning` | Learning adds `search_learnings` + `save_learning` tools. Leader calls these instead of `delegate_task_to_member`. |
+| No `pre_hooks` | PII guardrail blocks messages BEFORE routing. Causes cascade errors. |
+| `show_members_responses=False` | With `respond_directly`, showing member responses is redundant and shows thinking steps. |
 
 ---
 
 ## Skills System
 
-Skills are lazy-loaded domain knowledge files. They are the equivalent of
-AGENTS.md but scoped to specific domains. Each skill folder has:
+Skills are lazy-loaded via tool calls. The agent sees a summary and uses
+`get_skill_instructions(skill_name)` to load full instructions when needed.
 
-```
-skills/
-  domain-name/
-    SKILL.md          # Main instructions (loaded when relevant)
-    references/       # Supporting documents
-      reference-1.md
-      reference-2.md
-```
+### All 24 Skills
 
-### When to Use Skills vs Instructions
-
-| Use | Skills | Instructions |
-|-----|--------|-------------|
-| Domain knowledge (EHR compliance, lead scoring) | Skills | |
-| Agent behavior (output format, process steps) | | Instructions |
-| Reusable across agents | Skills | |
-| Specific to one agent | | Instructions |
-| Long reference material (templates, checklists) | Skills | |
-
-### Existing Skills
-
-| Skill | Domain | Used By |
-|-------|--------|---------|
-| `whabi/` | WhatsApp CRM, leads, campaigns | Whabi Support Agent |
-| `docflow/` | EHR, compliance, documents | Docflow Support Agent |
-| `aurora/` | Voice PWA, commands, Whisper | Aurora Support Agent |
-| `content-research/` | Trend research, content strategy | Trend Scout |
-| `content-strategy/` | Content pillars, hooks, formats | Scriptwriter |
-| `remotion-video/` | Video production, storyboards | Scriptwriter |
-| `campaign-analytics/` | Social media metrics, KPIs | Analytics Agent |
-| `deep-search/` | Query engineering, source quality | All research scouts |
-| `deep-synthesis/` | Report structure, confidence scoring | Research Synthesizer |
-| `seo-geo/` | SEO + GEO optimization | Keyword Researcher, Article Writer |
-| `agent-ops/` | General agent operations | Multiple agents |
+| Category | Skill | Domain |
+|----------|-------|--------|
+| **Research** | `deep-search/` | Query engineering, source quality |
+| | `deep-synthesis/` | Report structure, confidence scoring |
+| | `github-research/` | Repo analysis, PR tracking, OSS health |
+| | `community-research/` | Reddit, HN, Twitter sentiment |
+| | `market-intelligence/` | Market data, competitor pricing |
+| | `academic-research/` | arXiv, Scholar, PubMed |
+| **Products** | `whabi/` | WhatsApp CRM, leads, campaigns |
+| | `whatsapp-business-api/` | Meta API, webhooks, troubleshooting |
+| | `docflow/` | EHR, documents, workflows |
+| | `hipaa-compliance/` | Health data laws, audit checklist |
+| | `aurora/` | Voice commands, Whisper settings |
+| | `pwa-troubleshooting/` | Installation, mic, cache by browser |
+| **Content** | `content-research/` | Trend research, content briefs |
+| | `content-strategy/` | Pillars, hooks, brand voice |
+| | `copywriting-es/` | PAS/AIDA/BAB, Latam tone |
+| | `video-hooks/` | Hook patterns by category |
+| | `remotion-video/` | Video production, animations |
+| | `campaign-analytics/` | Metrics, KPIs, reporting |
+| | `seo-geo/` | SEO + GEO optimization |
+| **Business** | `competitive-analysis/` | SWOT, feature matrix |
+| | `latam-research/` | Latam data sources, regulatory map |
+| | `crm-patterns/` | Twenty CRM queries, tagging |
+| **Operations** | `agent-ops/` | Tool budgeting, error handling |
+| | `prompt-patterns/` | Chain-of-thought, few-shot |
 
 ---
 
-## Workflow Construction Pattern
+## Current System Inventory
 
-Follow Agno's official pipeline pattern (cookbook/gemini_3/20_workflow.py):
+### Agents (40 total, 18 registered in AgentOS)
 
-```python
-workflow = Workflow(
-    name="workflow-name",
-    description="What this workflow does in one sentence",
-    db=SqliteDb(session_table="workflow_session", db_file="nexus.db"),
-    steps=[
-        # Phase 1: Gather (parallel when possible)
-        Parallel(
-            Step(name="Source A", agent=agent_a, skip_on_failure=True),
-            Step(name="Source B", agent=agent_b, skip_on_failure=True),
-            name="Gather Phase",
-        ),
-        # Phase 2: Quality gate (stop early if data is thin)
-        Step(name="Quality Gate", executor=quality_gate_function),
-        # Phase 3: Synthesize (always the last step — user sees this)
-        Step(name="Final Output", agent=synthesizer_agent),
-    ],
-)
-```
+**Registered (visible in dashboard):**
+Research Agent, Knowledge Agent, Automation Agent, Trend Scout,
+Scriptwriter, Creative Director, Analytics Agent, Code Review Agent,
+Whabi Support, Docflow Support, Aurora Support, General Support,
+Dash, Pal, Onboarding Agent, Email Agent, Scheduler Agent, Invoice Agent
 
-### Workflow Rules
+**Internal (used in workflows):**
+5 search scouts (Tavily, Exa, Firecrawl, Spider, WebSearch),
+Research Planner, Research Synthesizer, Synthesis Agent,
+Keyword Researcher, Article Writer, SEO Auditor,
+3 social media writers, Social Media Auditor,
+3 competitor scouts, Competitor Synthesizer,
+Image Generator, Video Generator, Media Describer
 
-1. **The last step is what the user sees.** Never end on a scoring/eval step.
-2. **Use `skip_on_failure=True`** on parallel steps so one failure doesn't kill the workflow.
-3. **Quality gates** are simple functions, not agents. Check content length, not quality.
-4. **No `output_schema`** on the final synthesizer if the model doesn't support native structured outputs (MiniMax doesn't). Use instructions to guide format instead.
-5. **Parallel steps don't share context.** Each runs independently. The synthesizer combines them.
+### Teams (4)
 
-### Workflow vs Team Decision
+| Team | Mode | Router Model | Members |
+|------|------|-------------|---------|
+| NEXUS Master | route | TOOL_MODEL (MiniMax) | 12 specialists |
+| Cerebro | route | GROQ_ROUTING_MODEL | Research, Knowledge, Automation |
+| Content Factory | route | GROQ_ROUTING_MODEL | Trend Scout, Scriptwriter, Analytics |
+| WhatsApp Support | route | GROQ_ROUTING_MODEL | Whabi, Docflow, Aurora, General |
 
-| Scenario | Use |
-|----------|-----|
-| "Research X, then write about it" | Workflow (sequential) |
-| "Answer this customer question" | Team (router picks specialist) |
-| "Search 3 sources simultaneously" | Workflow with Parallel |
-| "Debate pros and cons" | Team (coordinate mode) |
-| "Generate content for 3 platforms" | Workflow with Parallel |
+### Workflows (7)
+
+| Workflow | Pattern |
+|----------|---------|
+| deep-research | Plan → Parallel(N scouts) → Quality Gate → Report |
+| content-production | Trend → Compact → Script → Creative Review |
+| client-research | Parallel(web + knowledge) → Synthesis |
+| seo-content | Keyword → Article → Audit Loop |
+| social-media-autopilot | Trend → Parallel(IG/TW/LI) → Audit |
+| competitor-intelligence | Parallel(3 scouts) → Synthesis |
+| media-generation | Router(image vs video) → Generation |
 
 ---
 
-## Team Construction Pattern
+## Common Mistakes (from production experience)
 
-```python
-team = Team(
-    name="Team Name",
-    description="What this team does (used by AgentOS UI)",
-    members=[agent_a, agent_b, agent_c],
-    mode=TeamMode.route,              # route | broadcast | coordinate | task
-    model=GROQ_ROUTING_MODEL,         # Routing model (no tools needed)
-    pre_hooks=_guardrails,
-    determine_input_for_members=False, # Pass user message as-is to member
-    instructions=[
-        "You are the [team name] router.",
-        "Route each message to the BEST agent based on content.",
-        "",
-        "## Routing rules (pick ONE agent):",
-        "- [keyword pattern]: route to [Agent A]",
-        "- [keyword pattern]: route to [Agent B]",
-        "- [unclear/general]: route to [Fallback Agent]",
-        "",
-        "Do NOT add commentary. Return the agent's response directly.",
-    ],
-    db=db,
-    learning=_learning,
-    show_members_responses=True,
-    markdown=True,
-)
-```
-
-### Team Mode Selection
-
-| Mode | Behavior | Use When |
-|------|----------|----------|
-| `route` | Leader picks ONE member | Customer support, FAQ routing |
-| `broadcast` | ALL members get the same input | Parallel research, multi-perspective |
-| `coordinate` | Leader orchestrates back-and-forth | Debate, iterative refinement |
-| `task` | Leader assigns specific sub-tasks | Complex decomposition |
-
----
-
-## Search Provider Strategy
-
-Scouts use different search backends based on available API keys.
-The system auto-detects which keys are set and creates scouts accordingly.
-
-| Provider | Best For | API Key | Cost |
-|----------|----------|---------|------|
-| **Tavily** | News, articles, AI-optimized snippets | `TAVILY_API_KEY` | 1000 free/mo |
-| **Exa** | Semantic search, papers, niche content | `EXA_API_KEY` | 1000 free/mo |
-| **Firecrawl** | Full page extraction, docs, READMEs | `FIRECRAWL_API_KEY` | 500 free/mo |
-| **Spider** | Site crawling, GitHub repos | Always available | Free OSS |
-| **WebSearch** | General fallback (DuckDuckGo) | Always available | Free |
-
-**Minimum setup:** Spider + WebSearch (no API keys needed).
-**Recommended:** Add Tavily for dramatically better search quality.
-**Full setup:** All 5 providers for maximum coverage.
-
----
-
-## Common Mistakes (from Agno's .cursorrules + our experience)
-
-| Mistake | Why It's Bad | Fix |
+| Mistake | What happens | Fix |
 |---------|-------------|-----|
-| Creating agents in loops | Massive performance hit | Create once, reuse |
-| Using Groq for tool calling | ~15% failure rate, hallucinated tools | Use MiniMax for tools |
-| `output_schema` on MiniMax | Produces raw JSON, not readable text | Use instructions for format |
-| SQLite in production | No concurrent access, no persistence | Use PostgreSQL |
-| DuckDuckGo in parallel | Rate limited, blocks after ~5 requests | Use Tavily/Exa |
-| Skills on Groq agents | Long context causes hallucinated tools | Skills only on MiniMax agents |
-| Ending workflow on eval step | User sees SCORE, not the report | Always end on synthesizer |
-| `tool_call_limit` too high | Agent loops endlessly on searches | Limit to 3 (2 searches + 1 margin) |
-| Missing `skip_on_failure=True` | One scout failure kills entire Parallel | Always set on parallel steps |
-| Forgetting `search_knowledge=True` | Knowledge base exists but agent can't search it | Required for agentic RAG |
+| `learning` on team leaders | Leader calls `search_learnings` instead of routing | No learning on teams |
+| `pre_hooks` on team leaders | PII guardrail blocks before routing | Guardrails on agents only |
+| No `respond_directly` on teams | Leader makes multiple tool calls, calls wrong tools | Always set `respond_directly=True` |
+| No `tool_call_limit` on teams | Leader loops on tool calls | Set `tool_call_limit=1` |
+| `show_members_responses=True` with `respond_directly` | Shows thinking steps to user | Set to `False` |
+| `output_schema` on MiniMax agents | Produces raw JSON, not readable text | Use instructions for format |
+| `user_memory` with MiniMax | Error 2013 (json_object incompatible) | Use entity_memory instead |
+| `enable_agentic_memory` with MiniMax | Same error 2013 | Disabled |
+| DuckDuckGo in parallel | Rate limited after ~5 requests | Use Tavily/Exa |
+| `tool_call_limit` too high on agents | Agent loops on searches, wastes tokens | 3 for scouts, 5 for others |
+| No `id=` on teams | API returns 404 (team not found by ID) | Always set `id="team-name"` |
+
+---
+
+## Frontend (nexus-ui)
+
+Next.js app connecting directly to AgentOS REST API.
+
+```
+Browser (localhost:3000) → POST /teams/nexus/runs (FormData) → AgentOS (localhost:7777)
+```
+
+- Streaming SSE with event filtering (only shows RunContent, hides tool calls/reasoning)
+- Configurable backend URL via `NEXT_PUBLIC_API_URL`
+- Deploy to Vercel with `npx vercel`
 
 ---
 
 ## File Structure
 
 ```
-nexus.py                    # Main application (all agents, teams, workflows, AgentOS)
-requirements.txt            # Dependencies
+nexus.py                    # Main application (3100+ lines)
+requirements.txt            # Python dependencies
 nexus.db                    # SQLite storage (dev only)
 lancedb/                    # Vector database (local)
-knowledge/                  # Knowledge base files (PDF, MD, CSV, JSON)
-  blog-drafts/              # Generated blog articles
-skills/                     # Domain skills (lazy-loaded instructions)
-  whabi/                    # WhatsApp CRM domain
-  docflow/                  # EHR domain
-  aurora/                   # Voice PWA domain
-  content-research/         # Content research strategies
-  content-strategy/         # Content creation guidelines
-  remotion-video/           # Video production specs
-  campaign-analytics/       # Analytics and KPIs
-  deep-search/              # Search query engineering
-  deep-synthesis/           # Report synthesis techniques
-  seo-geo/                  # SEO + GEO optimization
-  agent-ops/                # General agent operations
+knowledge/                  # Knowledge base files
+skills/                     # 24 domain skills
 workspace/                  # Sandboxed directory for Code Review Agent
+pal-data/                   # Pal personal storage (JSON files)
+nexus-ui/                   # Next.js frontend
+  src/app/page.tsx          # Chat interface with SSE streaming
+  src/app/layout.tsx        # CopilotKit/AG-UI layout
 evals/                      # Evaluation scripts
 AGENTS.md                   # This file
 ```
@@ -310,15 +266,12 @@ AGENTS.md                   # This file
 
 ## Production Checklist
 
-Before deploying to production:
-
 - [ ] Switch from `SqliteDb` to `PostgresDb`
-- [ ] Set `debug_mode=False` on all agents
-- [ ] Set `show_tool_calls=False` on all agents
-- [ ] Wrap all `agent.run()` calls in try-except
 - [ ] Configure `TAVILY_API_KEY` for search quality
 - [ ] Set up MiniMax paid plan (avoid rate limits)
-- [ ] Test all workflows end-to-end with real queries
-- [ ] Verify WhatsApp webhook endpoint is accessible
+- [ ] Deploy AgentOS on Hetzner (not Mac)
+- [ ] Configure JWT + RBAC for multi-user
+- [ ] Set up WhatsApp webhook with HTTPS
+- [ ] Deploy nexus-ui to Vercel
+- [ ] Test all workflows end-to-end
 - [ ] Set up monitoring via AgentOS tracing
-- [ ] Review PII guardrails are active on all customer-facing agents
