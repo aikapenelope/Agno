@@ -289,9 +289,10 @@ for file_path in sorted(KNOWLEDGE_DIR.iterdir()):
 # ---------------------------------------------------------------------------
 # Primary: MiniMax M2.7 (released 2026-03-18). 200K context, tool calling,
 # reasoning, 97% skill adherence. $0.30/$1.20 per 1M tokens (input/output).
-# Fallback: Groq for ultra-fast/cheap tasks where MiniMax is overkill.
+# Groq: ONLY for routing (no tools) and background tasks (evals, followups).
+# Groq tool calling is unreliable (known issue, no fix as of March 2026).
 
-# --- MiniMax Models (primary) ---
+# --- MiniMax Models (primary -- all tool calling goes through these) ---
 # M2.7: flagship model. Tool calling, reasoning, 200K context, ~60 tps.
 # SWE-Pro 56.22%, best open-source on GDPval-AA (ELO 1495).
 # role_map: MiniMax API does not support the "developer" role that OpenAI uses
@@ -325,19 +326,20 @@ FAST_MODEL = OpenAIChat(id="MiniMax-M2.7-highspeed", **_minimax_kwargs)
 # reasoning=True and no tools are needed). Cheaper than highspeed.
 REASONING_MODEL = OpenAIChat(id="MiniMax-M2.7", **_minimax_kwargs)
 
-# --- Groq Models (fallback / ultra-cheap tasks) ---
-GROQ_TOOL_MODEL = Groq(id="llama-3.3-70b-versatile")
+# --- Groq Models (ONLY for non-tool tasks: routing, evals, followups) ---
+# WARNING: Groq tool calling is broken as of March 2026. Do NOT use Groq
+# models for any agent that has tools=[...]. See agno-agi/agno#4090 and
+# community.groq.com/t/gpt-oss-120b-ignoring-tools/385 for details.
 GROQ_FAST_MODEL = Groq(id="llama-3.1-8b-instant")
-GROQ_REASONING_MODEL = Groq(id="openai/gpt-oss-120b")
-# GPT-OSS-20B: 1000 tps, tool calling, $0.075/M input. Ideal for routing/search.
 GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 
 # --- Learning Machine ---
 # Full learning system: profile, memory, entities, and accumulated knowledge.
-# Uses GROQ_FAST_MODEL (llama-3.1-8b, 560 tps) for extraction -- cheap and fast.
+# Uses TOOL_MODEL (MiniMax M2.7) for extraction -- EntityMemory needs reliable
+# tool calling (create_entity, add_fact, add_event) which Groq cannot provide.
 # All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
 _learning = LearningMachine(
-    model=GROQ_FAST_MODEL,
+    model=TOOL_MODEL,
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.ALWAYS),
     user_memory=UserMemoryConfig(mode=LearningMode.ALWAYS),
@@ -347,9 +349,9 @@ _learning = LearningMachine(
 
 # --- Context Compression ---
 # Compresses long tool results to save tokens in agents with heavy tool usage.
-# Uses GROQ_FAST_MODEL (llama-3.1-8b, 560 tps) for cheap/fast compression.
+# Uses FAST_MODEL (MiniMax M2.7-hs, 100 tps) for fast compression.
 _compression = CompressionManager(
-    model=GROQ_FAST_MODEL,
+    model=FAST_MODEL,
     compress_tool_results=True,
 )
 
@@ -744,7 +746,7 @@ _deep_synthesis_skills = (
 trend_scout = Agent(
     name="Trend Scout",
     role="Research AI/tech trends and produce content briefs",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,
     tools=[
         DuckDuckGoTools(),
         WebSearchTools(fixed_max_results=3),
@@ -1202,16 +1204,16 @@ _research_planner = Agent(
 )
 
 # --- Three parallel searchers ---
-# NOTE: scouts intentionally have NO skills to avoid hallucinated tool calls.
-# Skills inject long context that causes llama-3.3-70b to invent non-existent
-# tools like 'get_skill_script'. Keep scouts lean: one tool, clear instructions.
+# Skills restored: MiniMax M2.7 handles long context + skills without
+# hallucinating tool calls (unlike Groq which invented 'get_skill_script').
 _broad_scout = Agent(
     name="Broad Scout",
     role="General web search for current information",
-    model=GROQ_TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    model=TOOL_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     tool_call_limit=3,
     retries=1,
+    skills=_deep_search_skills,
     instructions=[
         "You are a web researcher. Search for the topic provided.",
         "",
@@ -1236,10 +1238,11 @@ _broad_scout = Agent(
 _data_scout = Agent(
     name="Data Scout",
     role="Search for statistics, market data, and numbers",
-    model=GROQ_TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    model=TOOL_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     tool_call_limit=3,
     retries=1,
+    skills=_deep_search_skills,
     instructions=[
         "You are a data researcher. Search for statistics and numbers on the topic.",
         "",
@@ -1264,10 +1267,11 @@ _data_scout = Agent(
 _source_scout = Agent(
     name="Source Scout",
     role="Find primary sources, case studies, and key players",
-    model=GROQ_TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    model=TOOL_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     tool_call_limit=3,
     retries=1,
+    skills=_deep_search_skills,
     instructions=[
         "You are a source researcher. Find primary sources and case studies.",
         "",
@@ -1308,7 +1312,7 @@ _research_team = Team(
 _research_reflector = Agent(
     name="Research Reflector",
     role="Evaluate research completeness and identify critical gaps",
-    model=GROQ_REASONING_MODEL,
+    model=REASONING_MODEL,
     reasoning=True,
     reasoning_min_steps=2,
     reasoning_max_steps=4,
@@ -1391,7 +1395,7 @@ def _check_sufficiency(step_input: StepInput) -> StepOutput:
 _research_critic = Agent(
     name="Research Critic",
     role="Score research reports for quality and provide improvement feedback",
-    model=GROQ_REASONING_MODEL,
+    model=REASONING_MODEL,
     reasoning=True,
     reasoning_min_steps=2,
     reasoning_max_steps=4,
@@ -1494,7 +1498,7 @@ _seo_skills = (
 _keyword_researcher = Agent(
     name="Keyword Researcher",
     role="Find high-value topics that AI engines cite and Google ranks",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
     skills=_seo_skills,
@@ -1576,7 +1580,7 @@ _article_writer = Agent(
 _seo_auditor = Agent(
     name="SEO Auditor",
     role="Audit articles for SEO and GEO optimization compliance",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent, enable_save_file=False)],
     instructions=[
         "You audit blog articles for SEO and GEO (Generative Engine Optimization).",
@@ -2063,7 +2067,7 @@ social_media_workflow = Workflow(
 _competitor_content_scout = Agent(
     name="Competitor Content Scout",
     role="Track what competitors are publishing and posting",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
     instructions=[
@@ -2086,7 +2090,7 @@ _competitor_content_scout = Agent(
 _competitor_pricing_scout = Agent(
     name="Competitor Pricing Scout",
     role="Track competitor pricing changes and offers",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
     instructions=[
@@ -2107,7 +2111,7 @@ _competitor_pricing_scout = Agent(
 _competitor_reviews_scout = Agent(
     name="Competitor Reviews Scout",
     role="Find recent customer reviews and sentiment about competitors",
-    model=GROQ_ROUTING_MODEL,
+    model=TOOL_MODEL,
     tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
     retries=0,
     instructions=[
@@ -2404,9 +2408,8 @@ registry = Registry(
         TOOL_MODEL,
         FAST_MODEL,
         REASONING_MODEL,
-        GROQ_TOOL_MODEL,
         GROQ_FAST_MODEL,
-        GROQ_REASONING_MODEL,
+        GROQ_ROUTING_MODEL,
     ],
     dbs=[db],
     vector_dbs=[vector_db],
