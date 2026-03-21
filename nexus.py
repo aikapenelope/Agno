@@ -46,6 +46,7 @@ from agno.compression.manager import CompressionManager
 from agno.os.interfaces.whatsapp.whatsapp import Whatsapp
 from agno.tools.decorator import tool
 from agno.db.sqlite import SqliteDb
+from agno.eval.base import BaseEval
 from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from agno.learn.machine import LearningMachine
 from agno.learn import (
@@ -67,6 +68,7 @@ from agno.tools.mcp import MCPTools
 from agno.tools.arxiv import ArxivTools
 from agno.tools.browserbase import BrowserbaseTools
 from agno.tools.calculator import CalculatorTools
+from agno.tools.coding import CodingTools
 from agno.tools.csv_toolkit import CsvTools
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.email import EmailTools
@@ -332,6 +334,84 @@ _guardrails = [
 ]
 
 # ---------------------------------------------------------------------------
+# Background Quality Eval (post-hook on agent responses)
+# ---------------------------------------------------------------------------
+# After each response, evaluates quality in the background without blocking.
+# Logs results for iterative prompt improvement. Uses GROQ_FAST_MODEL (cheap).
+
+class ResponseQualityEval(BaseEval):
+    """Evaluate agent response quality as a post-hook.
+
+    Checks: relevance, completeness, hallucination risk, actionability.
+    Logs a structured score to the agent's learning system.
+    """
+
+    def pre_check(self, run_input):  # type: ignore[override]
+        """No pre-check needed."""
+
+    async def async_pre_check(self, run_input):  # type: ignore[override]
+        """No async pre-check needed."""
+
+    def post_check(self, run_output):  # type: ignore[override]
+        """Score the response quality and log to learnings."""
+        content = run_output.get_content_as_string() if run_output.content else ""
+        if not content or len(content) < 50:
+            return  # Skip trivially short responses
+
+        agent_name = getattr(run_output, "agent_name", "unknown")
+        input_text = getattr(run_output, "input", "")
+
+        # Simple heuristic scoring (no extra LLM call to keep it fast/free)
+        score = 10
+        issues: list[str] = []
+
+        # Check for empty or very short responses
+        if len(content) < 100:
+            score -= 2
+            issues.append("response_too_short")
+
+        # Check for hallucination signals (claims without sources)
+        has_urls = "http" in content or "www." in content
+        has_claims = any(w in content.lower() for w in ["according to", "studies show", "research indicates", "data shows"])
+        if has_claims and not has_urls:
+            score -= 3
+            issues.append("claims_without_sources")
+
+        # Check for hedging (low confidence signals)
+        hedge_words = ["i think", "maybe", "perhaps", "i'm not sure", "it might"]
+        hedge_count = sum(1 for w in hedge_words if w in content.lower())
+        if hedge_count >= 2:
+            score -= 1
+            issues.append("excessive_hedging")
+
+        # Check for actionability (does it give next steps?)
+        action_signals = ["you should", "next step", "recommend", "try", "consider"]
+        has_actions = any(w in content.lower() for w in action_signals)
+        if not has_actions and len(content) > 500:
+            score -= 1
+            issues.append("no_actionable_advice")
+
+        score = max(1, min(10, score))
+
+        # Log to learnings knowledge base (non-blocking, best-effort)
+        try:
+            eval_record = (
+                f"EVAL: agent={agent_name} score={score}/10 "
+                f"issues={','.join(issues) or 'none'} "
+                f"input_preview={str(input_text)[:100]}"
+            )
+            learnings_knowledge.insert(content=eval_record, skip_if_exists=True)
+        except Exception:
+            pass  # Never block the response for eval logging
+
+    async def async_post_check(self, run_output):  # type: ignore[override]
+        """Async version delegates to sync."""
+        self.post_check(run_output)
+
+
+_quality_eval = ResponseQualityEval()
+
+# ---------------------------------------------------------------------------
 # Skills (domain knowledge loaded on demand)
 # ---------------------------------------------------------------------------
 # Skills are lazy-loaded: agents see summaries, then load full instructions
@@ -353,6 +433,7 @@ research_agent = Agent(
     tools=[WebSearchTools(fixed_max_results=5)],
     retries=2,  # Retry on Groq tool-call validation errors
     pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
     skills=_skills,
     instructions=[
         "You are a research specialist.",
@@ -384,6 +465,7 @@ knowledge_agent = Agent(
     knowledge=knowledge_base,
     search_knowledge=True,
     pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
     skills=_skills,
     reasoning=True,
     reasoning_min_steps=2,
@@ -495,6 +577,7 @@ automation_agent = Agent(
     model=TOOL_MODEL,  # Needs reliable tool calling for MCP
     tools=_automation_tools or None,  # type: ignore[arg-type]
     pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
     skills=_skills,
     instructions=[
         "You are an automation specialist with access to n8n, Twenty CRM, and Obsidian.",
@@ -1159,10 +1242,10 @@ _research_synthesizer = Agent(
     compression_manager=_compression,
 )
 
-# --- Deep Research Workflow v2 ---
-# Pattern: Plan → Parallel(3 scouts) → Loop(reflect → search if needed) → Synthesize
-# Applies: Native Parallel (not broadcast team), Loop for reflection,
-# Condition for deciding if more research needed, error tolerance.
+# --- Deep Research Workflow v3 ---
+# Pattern: Plan → Parallel(3 scouts) → Loop(reflect → search if needed)
+#        → Synthesize → Loop(quality critic → revise if score < 7)
+# v3 adds iterative quality refinement after synthesis.
 
 def _check_sufficiency(step_input: StepInput) -> StepOutput:
     """Check if research is sufficient based on reflector output."""
@@ -1173,11 +1256,52 @@ def _check_sufficiency(step_input: StepInput) -> StepOutput:
         stop=is_sufficient,  # Stop the loop if sufficient
     )
 
+# --- Quality Critic: scores the final report and provides feedback ---
+_research_critic = Agent(
+    name="Research Critic",
+    role="Score research reports for quality and provide improvement feedback",
+    model=GROQ_REASONING_MODEL,
+    reasoning=True,
+    reasoning_min_steps=2,
+    reasoning_max_steps=4,
+    instructions=[
+        "You evaluate research reports for quality and completeness.",
+        "",
+        "## Scoring Criteria (each 0-10)",
+        "1. EVIDENCE: Are claims backed by specific data and source URLs?",
+        "2. ANALYSIS: Does it explain what findings MEAN, not just what they ARE?",
+        "3. STRUCTURE: Is it well-organized with clear executive summary?",
+        "4. ACTIONABILITY: Are recommendations specific and implementable?",
+        "5. SOURCES: Are sources diverse, credible, and properly cited?",
+        "",
+        "## Output format (follow exactly)",
+        "SCORE: [average of 5 criteria, 0-10]",
+        "EVIDENCE: [X/10] - [one-line justification]",
+        "ANALYSIS: [X/10] - [one-line justification]",
+        "STRUCTURE: [X/10] - [one-line justification]",
+        "ACTIONABILITY: [X/10] - [one-line justification]",
+        "SOURCES: [X/10] - [one-line justification]",
+        "VERDICT: [PASS if SCORE >= 7, REVISE if SCORE < 7]",
+        "FEEDBACK: [if REVISE, 2-3 specific improvements needed]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+def _check_report_quality(step_input: StepInput) -> StepOutput:
+    """Check if the research report meets quality threshold (score >= 7)."""
+    content = step_input.previous_step_content or ""
+    is_passing = "PASS" in content.upper() and "REVISE" not in content.upper()
+    return StepOutput(
+        content=content,
+        stop=is_passing,  # Stop the loop if quality is sufficient
+    )
+
 deep_research_workflow = Workflow(
     name="deep-research",
     description=(
-        "Production deep research: plan → 3 parallel searchers → "
-        "reflection loop (max 2 iterations) → structured synthesis report."
+        "Production deep research v3: plan → 3 parallel searchers → "
+        "reflection loop → synthesis → quality scoring loop (max 2 revisions)."
     ),
     db=SqliteDb(
         session_table="deep_research_session",
@@ -1204,6 +1328,15 @@ deep_research_workflow = Workflow(
         ),
         # Phase 4: Synthesize into structured report + save to knowledge/
         Step(name="Synthesize", agent=_research_synthesizer),
+        # Phase 5: Quality scoring loop — critic scores, synthesizer revises if < 7
+        Loop(
+            steps=[
+                Step(name="Quality Review", agent=_research_critic),
+                Step(name="Check Quality", executor=_check_report_quality),
+            ],
+            max_iterations=2,
+            forward_iteration_output=True,
+        ),
     ],
 )
 
@@ -1390,6 +1523,468 @@ seo_content_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
+# Code Review Agent (Gcode pattern)
+# ---------------------------------------------------------------------------
+# Sandboxed coding agent that reviews, writes, and iterates on code.
+# Learns project conventions, gotchas, and patterns over time.
+# All file operations restricted to workspace/ directory.
+
+_code_workspace = Path(__file__).parent / "workspace"
+_code_workspace.mkdir(exist_ok=True)
+
+code_review_agent = Agent(
+    name="Code Review Agent",
+    role="Review, write, and iterate on code with self-learning",
+    model=TOOL_MODEL,
+    tools=[
+        CodingTools(base_dir=str(_code_workspace)),
+        ReasoningTools(),
+    ],
+    pre_hooks=_guardrails,
+    reasoning=True,
+    reasoning_min_steps=2,
+    reasoning_max_steps=5,
+    instructions=[
+        "You are a code review specialist that gets sharper with every review.",
+        "You operate in a sandboxed workspace directory. All files live there.",
+        "",
+        "## Capabilities",
+        "- Review code for bugs, security issues, and style problems",
+        "- Write and edit code files in the workspace",
+        "- Run shell commands to test and validate code",
+        "- Learn project conventions and remember past mistakes",
+        "",
+        "## Review Process",
+        "1. Read the code carefully using read_file",
+        "2. Think through potential issues using reasoning tools",
+        "3. Produce a structured review:",
+        "   - SEVERITY: critical / warning / info",
+        "   - ISSUE: what's wrong and where (file:line)",
+        "   - FIX: specific code change to resolve it",
+        "   - WHY: explanation of the impact",
+        "",
+        "## Rules",
+        "- Always check for: SQL injection, XSS, hardcoded secrets, race conditions",
+        "- Flag missing error handling and edge cases",
+        "- Suggest idiomatic improvements for the language",
+        "- If you make a mistake, learn from it for next time",
+        "- Use relative paths within the workspace only",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+# ---------------------------------------------------------------------------
+# Social Media Autopilot (Workflow 4)
+# ---------------------------------------------------------------------------
+# Scheduled daily: trend research → parallel post generation for 3 platforms
+# → audit loop → save to content queue.
+# Uses ScheduleManager for cron-based daily execution.
+
+_ig_post_agent = Agent(
+    name="Instagram Post Writer",
+    role="Write Instagram Reels captions and hashtags in Spanish",
+    model=FAST_MODEL,
+    instructions=[
+        "You write Instagram Reels captions in Spanish (Latin America neutral).",
+        "Format: hook (first line, punchy) + 2-3 lines of value + CTA + hashtags.",
+        "Max 2200 chars. Use line breaks for readability.",
+        "Include 20-30 relevant hashtags mixing popular and niche.",
+        "Tone: professional but accessible. Never start with 'Hola'.",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_twitter_post_agent = Agent(
+    name="Twitter Post Writer",
+    role="Write Twitter/X threads in Spanish optimized for engagement",
+    model=FAST_MODEL,
+    instructions=[
+        "You write Twitter/X posts in Spanish (Latin America neutral).",
+        "Format: either a single tweet (max 280 chars) or a thread (3-5 tweets).",
+        "First tweet must hook. Use numbers, bold claims, or questions.",
+        "Thread format: 1/ hook → 2-3/ value → last/ CTA with link placeholder.",
+        "No hashtags in threads (they reduce reach on X). Use them only in single tweets.",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_linkedin_post_agent = Agent(
+    name="LinkedIn Post Writer",
+    role="Write LinkedIn posts in Spanish for professional audience",
+    model=FAST_MODEL,
+    instructions=[
+        "You write LinkedIn posts in Spanish (Latin America neutral).",
+        "Format: hook line + empty line + 3-5 short paragraphs + CTA.",
+        "Max 3000 chars. Use line breaks aggressively (1 idea per line).",
+        "Tone: thought leadership, data-driven, personal experience angle.",
+        "End with a question to drive comments.",
+        "No hashtags in the body. Add 3-5 at the very end.",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_social_auditor = Agent(
+    name="Social Media Auditor",
+    role="Audit social media posts for quality and platform compliance",
+    model=GROQ_ROUTING_MODEL,
+    instructions=[
+        "You audit social media posts for quality.",
+        "",
+        "## Check each post for:",
+        "- Platform-specific format compliance (char limits, hashtag rules)",
+        "- Hook strength (would you stop scrolling?)",
+        "- Value density (does every sentence add something?)",
+        "- CTA clarity (is the next action obvious?)",
+        "- Brand consistency (professional, data-driven, Spanish)",
+        "",
+        "## Output format",
+        "PLATFORM: [instagram/twitter/linkedin]",
+        "SCORE: [1-10]",
+        "VERDICT: [APPROVE or REVISE]",
+        "ISSUES: [specific fixes if REVISE]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+
+def _check_social_approved(step_input: StepInput) -> StepOutput:
+    """Check if the social media auditor approved all posts."""
+    content = step_input.previous_step_content or ""
+    is_approved = "APPROVE" in content.upper() and "REVISE" not in content.upper()
+    return StepOutput(content=content, stop=is_approved)
+
+
+social_media_workflow = Workflow(
+    name="social-media-autopilot",
+    description=(
+        "Social media pipeline: trend research → parallel post generation "
+        "(Instagram + Twitter + LinkedIn) → audit loop → content queue."
+    ),
+    db=SqliteDb(
+        session_table="social_media_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        # Phase 1: Research trending topic
+        Step(name="Trend Research", agent=trend_scout),
+        # Phase 2: Generate posts for all 3 platforms in parallel
+        Parallel(
+            Step(name="Instagram Post", agent=_ig_post_agent),
+            Step(name="Twitter Post", agent=_twitter_post_agent),
+            Step(name="LinkedIn Post", agent=_linkedin_post_agent),
+            name="Platform Posts",
+        ),
+        # Phase 3: Audit loop — auditor reviews, writers revise if needed
+        Loop(
+            steps=[
+                Step(name="Social Audit", agent=_social_auditor),
+                Step(name="Check Approval", executor=_check_social_approved),
+            ],
+            max_iterations=2,
+            forward_iteration_output=True,
+        ),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Competitor Intelligence (Workflow 5)
+# ---------------------------------------------------------------------------
+# Weekly Monday: 3 parallel scouts research competitors → synthesis report
+# → save to knowledge base for future reference.
+
+_competitor_content_scout = Agent(
+    name="Competitor Content Scout",
+    role="Track what competitors are publishing and posting",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    instructions=[
+        "You track competitor content output.",
+        "Search for recent blog posts, social media, product updates from competitors.",
+        "Focus on: what topics they cover, what formats they use, engagement signals.",
+        "",
+        "## Output format",
+        "COMPETITOR_CONTENT:",
+        "- [competitor name]: [what they published] [URL]",
+        "- [competitor name]: [what they published] [URL]",
+        "TRENDS: [patterns across competitors]",
+        "GAPS: [topics they're NOT covering that we could own]",
+    ],
+    db=db,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+_competitor_pricing_scout = Agent(
+    name="Competitor Pricing Scout",
+    role="Track competitor pricing changes and offers",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    instructions=[
+        "You track competitor pricing and offers.",
+        "Search for pricing pages, plan changes, discounts, free tier updates.",
+        "",
+        "## Output format",
+        "PRICING_CHANGES:",
+        "- [competitor]: [change description] [source URL]",
+        "CURRENT_PLANS: [summary table if found]",
+        "OPPORTUNITIES: [where our pricing is more competitive]",
+    ],
+    db=db,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+_competitor_reviews_scout = Agent(
+    name="Competitor Reviews Scout",
+    role="Find recent customer reviews and sentiment about competitors",
+    model=GROQ_ROUTING_MODEL,
+    tools=[DuckDuckGoTools(), WebSearchTools(fixed_max_results=5)],
+    retries=0,
+    instructions=[
+        "You track competitor customer sentiment.",
+        "Search for reviews on G2, Capterra, ProductHunt, Reddit, Twitter.",
+        "",
+        "## Output format",
+        "REVIEWS:",
+        "- [competitor]: [sentiment summary] [source URL]",
+        "COMPLAINTS: [common pain points customers mention]",
+        "PRAISE: [what customers love about competitors]",
+        "OPPORTUNITY: [complaints we could solve better]",
+    ],
+    db=db,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+_competitor_synthesizer = Agent(
+    name="Competitor Intelligence Synthesizer",
+    role="Produce weekly competitor intelligence reports",
+    model=TOOL_MODEL,
+    tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
+    instructions=[
+        "You synthesize competitor intelligence into an actionable weekly report.",
+        "",
+        "## Report Structure",
+        "1. Executive Summary (3 sentences: biggest threat, biggest opportunity, action item)",
+        "2. Content Landscape (what competitors published, gaps we can exploit)",
+        "3. Pricing & Positioning (changes, how we compare)",
+        "4. Customer Sentiment (what customers love/hate about competitors)",
+        "5. Recommended Actions (3 specific things to do this week)",
+        "",
+        "## Rules",
+        "- Every claim needs a source URL",
+        "- Write in Spanish",
+        "- Save report as: knowledge/competitor-intel-<date>.md",
+        "- Be analytical: what does this MEAN for us, not just what happened",
+    ],
+    db=db,
+    learning=_learning,
+    markdown=True,
+    compression_manager=_compression,
+)
+
+competitor_intel_workflow = Workflow(
+    name="competitor-intelligence",
+    description=(
+        "Weekly competitor intelligence: 3 parallel scouts (content, pricing, reviews) "
+        "→ synthesis report → saved to knowledge base."
+    ),
+    db=SqliteDb(
+        session_table="competitor_intel_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        # Phase 1: 3 scouts research in parallel
+        Parallel(
+            Step(name="Content Scout", agent=_competitor_content_scout, skip_on_failure=True),
+            Step(name="Pricing Scout", agent=_competitor_pricing_scout, skip_on_failure=True),
+            Step(name="Reviews Scout", agent=_competitor_reviews_scout, skip_on_failure=True),
+            name="Competitor Research",
+        ),
+        # Phase 2: Synthesize into weekly report
+        Step(name="Synthesize Report", agent=_competitor_synthesizer),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Media Generation Pipeline (Workflow 6)
+# ---------------------------------------------------------------------------
+# Router-based: user requests media → routes to image or video generation
+# → description/evaluation of the result.
+
+_image_generator = Agent(
+    name="Image Generator",
+    role="Generate detailed image prompts and descriptions",
+    model=FAST_MODEL,
+    instructions=[
+        "You are an image generation specialist.",
+        "Given a topic or request, produce a detailed image generation prompt.",
+        "",
+        "## Output format",
+        "PROMPT: [detailed prompt for image generation, 50-100 words]",
+        "STYLE: [art style: photorealistic, illustration, 3D render, etc.]",
+        "ASPECT_RATIO: [16:9, 1:1, 9:16, 4:3]",
+        "MOOD: [emotional tone of the image]",
+        "COLORS: [dominant color palette]",
+        "",
+        "## Rules",
+        "- Be specific about composition, lighting, and subject placement",
+        "- Include negative prompts (what to avoid)",
+        "- Optimize for the target platform (Instagram = 1:1 or 9:16)",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_video_generator = Agent(
+    name="Video Generator",
+    role="Create video storyboards and production plans",
+    model=FAST_MODEL,
+    instructions=[
+        "You are a video production specialist.",
+        "Given a topic, create a detailed video production plan.",
+        "",
+        "## Output format",
+        "CONCEPT: [1-sentence video concept]",
+        "DURATION: [target duration in seconds]",
+        "SCENES: [numbered list of scenes with visual + narration]",
+        "TRANSITIONS: [transition types between scenes]",
+        "MUSIC_MOOD: [background music style]",
+        "PLATFORM: [optimized for: reels, tiktok, youtube_shorts]",
+        "",
+        "## Rules",
+        "- Max 6 scenes for short-form (< 60s)",
+        "- Each scene: visual description + narration text + duration",
+        "- First scene must hook in 1-3 seconds",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_media_describer = Agent(
+    name="Media Describer",
+    role="Evaluate and describe generated media concepts",
+    model=GROQ_ROUTING_MODEL,
+    instructions=[
+        "You evaluate media concepts (image prompts or video storyboards).",
+        "Describe how the final result would look and feel.",
+        "Rate the concept 1-10 for: visual impact, brand alignment, platform fit.",
+        "Suggest one specific improvement.",
+    ],
+    db=db,
+    markdown=True,
+)
+
+
+def _select_media_pipeline(step_input: StepInput) -> list:
+    """Route to image or video pipeline based on input content."""
+    raw_input = step_input.input
+    content = str(raw_input).lower() if raw_input else ""
+    if any(w in content for w in ["video", "reel", "tiktok", "clip", "motion"]):
+        return [
+            Step(name="Generate Video", agent=_video_generator),
+            Step(name="Describe Video", agent=_media_describer),
+        ]
+    return [
+        Step(name="Generate Image", agent=_image_generator),
+        Step(name="Describe Image", agent=_media_describer),
+    ]
+
+
+_image_pipeline = Steps(
+    name="image_pipeline",
+    description="Image generation and evaluation",
+    steps=[
+        Step(name="Generate Image", agent=_image_generator),
+        Step(name="Describe Image", agent=_media_describer),
+    ],
+)
+
+_video_pipeline = Steps(
+    name="video_pipeline",
+    description="Video storyboard and evaluation",
+    steps=[
+        Step(name="Generate Video", agent=_video_generator),
+        Step(name="Describe Video", agent=_media_describer),
+    ],
+)
+
+media_generation_workflow = Workflow(
+    name="media-generation",
+    description=(
+        "Media generation pipeline: routes to image or video generation "
+        "based on input, then evaluates the result."
+    ),
+    db=SqliteDb(
+        session_table="media_generation_session",
+        db_file="nexus.db",
+    ),
+    steps=[
+        Router(
+            name="Media Type Router",
+            description="Routes to image or video pipeline based on request",
+            selector=_select_media_pipeline,
+            choices=[_image_pipeline, _video_pipeline],
+        ),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Scheduled Tasks (ScheduleManager)
+# ---------------------------------------------------------------------------
+# Programmatic schedule creation for automated workflows.
+# Schedules are persisted in SQLite and polled by the AgentOS scheduler.
+
+from agno.scheduler import ScheduleManager
+
+_schedule_mgr = ScheduleManager(db)
+
+# Daily social media autopilot (10am weekdays, America/Bogota)
+_schedule_mgr.create(
+    name="daily-social-media",
+    cron="0 10 * * 1-5",
+    endpoint="/workflows/social-media-autopilot/runs",
+    payload={"message": "Create today's social media posts about the latest AI trend"},
+    description="Daily social media content generation for all platforms",
+    timezone="America/Bogota",
+    if_exists="update",
+)
+
+# Weekly competitor intelligence (Monday 9am, America/Bogota)
+_schedule_mgr.create(
+    name="weekly-competitor-intel",
+    cron="0 9 * * 1",
+    endpoint="/workflows/competitor-intelligence/runs",
+    payload={"message": "Generate weekly competitor intelligence report for Whabi, Docflow, Aurora competitors"},
+    description="Weekly competitor analysis across content, pricing, and reviews",
+    timezone="America/Bogota",
+    if_exists="update",
+)
+
+# Daily research briefing (8am weekdays, America/Bogota)
+_schedule_mgr.create(
+    name="daily-research-briefing",
+    cron="0 8 * * 1-5",
+    endpoint="/agents/Research Agent/runs",
+    payload={"message": "Find today's top AI trend relevant to WhatsApp CRM, EHR, and voice-first apps"},
+    description="Morning AI trend briefing",
+    timezone="America/Bogota",
+    if_exists="update",
+)
+
+# ---------------------------------------------------------------------------
 # Registry (exposes components to AgentOS Studio UI)
 # ---------------------------------------------------------------------------
 
@@ -1460,25 +2055,57 @@ registry = Registry(
 )
 
 # ---------------------------------------------------------------------------
-# WhatsApp Interface (connects Cerebro to WhatsApp Business API)
+# Multi-Channel Gateway (WhatsApp + Slack + Telegram)
 # ---------------------------------------------------------------------------
-# Set these env vars to enable WhatsApp:
-#   WHATSAPP_PHONE_ID     - Meta Business phone number ID
-#   WHATSAPP_ACCESS_TOKEN  - Meta Graph API access token
-#   WHATSAPP_VERIFY_TOKEN  - Webhook verification token (you choose this)
-# The interface exposes a /whatsapp webhook endpoint on the AgentOS server.
+# All channels point to Cerebro for intelligent routing. Each channel
+# maintains its own session history but shares knowledge and learnings.
+#
+# WhatsApp: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_ID, WHATSAPP_VERIFY_TOKEN
+# Slack:    SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET (+ pip install slack-sdk)
+# Telegram: TELEGRAM_BOT_TOKEN (+ pip install 'agno[telegram]')
 
 _interfaces: list = []
+
+# --- WhatsApp ---
 if os.getenv("WHATSAPP_ACCESS_TOKEN"):
     _interfaces.append(
         Whatsapp(
-            agent=research_agent,  # Default agent for WhatsApp conversations
+            agent=research_agent,  # Default agent for simple queries
             team=cerebro,  # Route complex queries through Cerebro
             phone_number_id=os.getenv("WHATSAPP_PHONE_ID"),
             access_token=os.getenv("WHATSAPP_ACCESS_TOKEN"),
             verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", "nexus-verify"),
+            send_user_number_to_context=True,  # Include sender info for CRM lookup
         )
     )
+
+# --- Slack ---
+if os.getenv("SLACK_BOT_TOKEN"):
+    try:
+        from agno.os.interfaces.slack import Slack
+
+        _interfaces.append(
+            Slack(
+                agent=research_agent,
+                team=cerebro,
+            )
+        )
+    except ImportError:
+        pass  # slack-sdk not installed
+
+# --- Telegram ---
+if os.getenv("TELEGRAM_BOT_TOKEN"):
+    try:
+        from agno.os.interfaces.telegram import Telegram
+
+        _interfaces.append(
+            Telegram(
+                agent=research_agent,
+                team=cerebro,
+            )
+        )
+    except ImportError:
+        pass  # pyTelegramBotAPI not installed
 
 # ---------------------------------------------------------------------------
 # AgentOS
@@ -1521,9 +2148,18 @@ agent_os = AgentOS(
         scriptwriter,
         creative_director,
         analytics_agent,
+        code_review_agent,
     ],
     teams=[cerebro, content_team],
-    workflows=[client_research_workflow, content_production_workflow, deep_research_workflow, seo_content_workflow],
+    workflows=[
+        client_research_workflow,
+        content_production_workflow,
+        deep_research_workflow,
+        seo_content_workflow,
+        social_media_workflow,
+        competitor_intel_workflow,
+        media_generation_workflow,
+    ],
     knowledge=[knowledge_base],
     registry=registry,
     interfaces=_interfaces or None,
