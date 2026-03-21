@@ -14,7 +14,7 @@ export const metadata: Metadata = {
  * No CopilotKit middleware needed — talks to AgentOS endpoints directly.
  *
  * Backend: python nexus.py (runs on port 7777)
- * API: http://localhost:7777/v1/teams/NEXUS/runs
+ * API: POST http://localhost:7777/teams/nexus/runs (form-data)
  */
 export default function RootLayout({
   children,

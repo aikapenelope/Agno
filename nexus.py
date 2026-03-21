@@ -2187,6 +2187,7 @@ invoice_agent = Agent(
 # orchestrator that can delegate to any specialist.
 
 nexus_master = Team(
+    id="nexus",
     name="NEXUS",
     description=(
         "Master orchestrator with access to all NEXUS agents. "
