@@ -12,6 +12,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { listWorkflows, runWorkflow, type WorkflowInfo } from "@/lib/api";
+import PageHeader from "@/components/layout/page-header";
 
 /* ------------------------------------------------------------------ */
 /* Static descriptions (AgentOS may not return these)                   */
@@ -256,14 +257,7 @@ export default function WorkflowsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <header className="h-14 flex items-center justify-between px-6 border-b border-[#1e1e24] shrink-0">
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-medium text-white">Workflows</h2>
-          <span className="text-[11px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded-full">
-            {workflows.length} disponibles
-          </span>
-        </div>
-      </header>
+      <PageHeader title="Workflows" />
 
       {/* List */}
       <div className="flex-1 overflow-y-auto p-6">

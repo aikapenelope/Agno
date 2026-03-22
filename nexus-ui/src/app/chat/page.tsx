@@ -12,6 +12,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { runTeam } from "@/lib/api";
+import PageHeader from "@/components/layout/page-header";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -233,13 +234,7 @@ export default function ChatPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <header className="h-14 flex items-center justify-between px-6 border-b border-[#1e1e24] shrink-0">
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-medium text-white">Chat</h2>
-          <span className="text-[11px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded-full">
-            NEXUS Master Team
-          </span>
-        </div>
+      <PageHeader title="Chat" badge="NEXUS Master Team">
         <button
           onClick={() => setMessages([])}
           className="p-2 rounded-lg text-zinc-600 hover:text-zinc-400 hover:bg-white/5 transition-colors"
@@ -247,7 +242,7 @@ export default function ChatPage() {
         >
           <RotateCcw size={14} />
         </button>
-      </header>
+      </PageHeader>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
