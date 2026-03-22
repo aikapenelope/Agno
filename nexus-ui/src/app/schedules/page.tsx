@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { listSchedules } from "@/lib/api";
+import PageHeader from "@/components/layout/page-header";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7777";
 
@@ -100,13 +101,7 @@ export default function SchedulesPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="h-14 flex items-center justify-between px-6 border-b border-[#1e1e24] shrink-0">
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-medium text-white">Schedules</h2>
-          <span className="text-[11px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded-full">
-            {schedules.length} programados
-          </span>
-        </div>
+      <PageHeader title="Schedules">
         <div className="flex items-center gap-2">
           <button onClick={() => setShowCreate(!showCreate)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 text-[12px] font-medium hover:bg-emerald-600/20 transition-colors">
             <Plus size={12} /> Nuevo
@@ -115,7 +110,7 @@ export default function SchedulesPage() {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
-      </header>
+      </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-4">

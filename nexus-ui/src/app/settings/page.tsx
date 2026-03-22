@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Settings, Check, AlertCircle, ExternalLink } from "lucide-react";
+import PageHeader from "@/components/layout/page-header";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7777";
 
@@ -37,9 +38,7 @@ export default function SettingsPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="h-14 flex items-center px-6 border-b border-[#1e1e24] shrink-0">
-        <h2 className="text-[15px] font-medium text-white">Ajustes</h2>
-      </header>
+      <PageHeader title="Ajustes" />
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto space-y-8">

@@ -13,6 +13,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { listApprovals, resolveApproval, type Approval } from "@/lib/api";
+import PageHeader from "@/components/layout/page-header";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -208,15 +209,7 @@ export default function ApprovalsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <header className="h-14 flex items-center justify-between px-6 border-b border-[#1e1e24] shrink-0">
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-medium text-white">Aprobaciones</h2>
-          {pendingCount > 0 && (
-            <span className="min-w-[20px] h-[20px] flex items-center justify-center rounded-full bg-amber-500/90 text-[11px] font-bold text-white px-1.5">
-              {pendingCount}
-            </span>
-          )}
-        </div>
+      <PageHeader title="Aprobaciones">
         <div className="flex items-center gap-2">
           {/* Filter tabs */}
           {(["all", "pending", "resolved"] as const).map((f) => (
@@ -240,7 +233,7 @@ export default function ApprovalsPage() {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
-      </header>
+      </PageHeader>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto p-6">
