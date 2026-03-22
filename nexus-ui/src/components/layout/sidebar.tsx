@@ -13,9 +13,11 @@ import {
   Settings,
   Smartphone,
   Database,
+  Sparkles,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { approvalCount } from "@/lib/api";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7777";
 
 interface NavItem {
   href: string;
@@ -25,7 +27,8 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: "/", label: "Chat", icon: MessageSquare },
+  { href: "/", label: "Dashboard", icon: BarChart3 },
+  { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/whatsapp", label: "WhatsApp", icon: Smartphone },
   { href: "/crm", label: "CRM", icon: Database },
   { href: "/agents", label: "Agentes", icon: Bot },
@@ -33,17 +36,21 @@ const NAV: NavItem[] = [
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/approvals", label: "Aprobaciones", icon: CheckCircle, badge: true },
   { href: "/schedules", label: "Schedules", icon: Calendar },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/settings", label: "Ajustes", icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  onOpenCopilot,
+}: {
+  onOpenCopilot: () => void;
+}) {
   const pathname = usePathname();
   const [pending, setPending] = useState(0);
 
   useEffect(() => {
     const poll = () =>
-      approvalCount()
+      fetch(`${API_URL}/approvals/count`)
+        .then((r) => r.json())
         .then((d) => setPending(d.count ?? 0))
         .catch(() => {});
     poll();
@@ -54,16 +61,16 @@ export default function Sidebar() {
   return (
     <aside className="w-[220px] h-screen flex flex-col bg-[#0c0c0f] border-r border-[#1e1e24] shrink-0">
       {/* Logo */}
-      <div className="h-16 flex items-center gap-2.5 px-5 border-b border-[#1e1e24]">
+      <div className="h-14 flex items-center gap-2.5 px-5 border-b border-[#1e1e24]">
         <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
           <div className="w-2 h-2 rounded-full bg-emerald-500" />
         </div>
-        <div>
-          <span className="text-[15px] font-semibold text-white tracking-tight">
-            NEXUS
-          </span>
-          <span className="text-[11px] text-zinc-500 ml-1.5">v2</span>
-        </div>
+        <span className="text-[15px] font-semibold text-white tracking-tight">
+          NEXUS
+        </span>
+        <span className="text-[10px] text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded ml-auto">
+          v2
+        </span>
       </div>
 
       {/* Nav */}
@@ -98,6 +105,17 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Copilot button */}
+      <div className="px-3 pb-2">
+        <button
+          onClick={onOpenCopilot}
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 text-[13px] font-medium hover:bg-emerald-600/20 transition-colors"
+        >
+          <Sparkles size={14} />
+          <span>Abrir NEXUS AI</span>
+        </button>
+      </div>
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-[#1e1e24]">
