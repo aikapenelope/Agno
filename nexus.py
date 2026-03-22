@@ -2337,6 +2337,80 @@ product_dev_team = Team(
 )
 
 # ---------------------------------------------------------------------------
+# Media Generation Pipeline (Workflow 6)
+# ---------------------------------------------------------------------------
+# Router-based: user requests media → routes to image or video generation
+# → description/evaluation of the result.
+
+_image_generator = Agent(
+    name="Image Generator",
+    role="Generate images from text prompts using AI",
+    model=FAST_MODEL,
+    tools=[NanoBananaTools()] if os.getenv("GOOGLE_API_KEY") else [],
+    tool_call_limit=3,
+    instructions=[
+        "You are an image generation specialist.",
+        "Given a topic or request, create a detailed prompt and generate the image.",
+        "",
+        "## Process",
+        "1. Craft a detailed image prompt (50-100 words)",
+        "2. Call create_image with the prompt to generate the actual image",
+        "3. Describe the result",
+        "",
+        "## Prompt engineering tips",
+        "- Be specific about composition, lighting, and subject placement",
+        "- Include style keywords: photorealistic, illustration, 3D render, etc.",
+        "- Specify mood and color palette",
+        "- Optimize for the target platform (Instagram = 1:1 or 9:16)",
+        "",
+        "## If create_image tool is not available",
+        "Produce a detailed text prompt that can be used with any image generator.",
+        "Format: PROMPT: [prompt] | STYLE: [style] | ASPECT_RATIO: [ratio]",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_video_generator = Agent(
+    name="Video Generator",
+    role="Create video storyboards and production plans",
+    model=FAST_MODEL,
+    instructions=[
+        "You are a video production specialist.",
+        "Given a topic, create a detailed video production plan.",
+        "",
+        "## Output format",
+        "CONCEPT: [1-sentence video concept]",
+        "DURATION: [target duration in seconds]",
+        "SCENES: [numbered list of scenes with visual + narration]",
+        "TRANSITIONS: [transition types between scenes]",
+        "MUSIC_MOOD: [background music style]",
+        "PLATFORM: [optimized for: reels, tiktok, youtube_shorts]",
+        "",
+        "## Rules",
+        "- Max 6 scenes for short-form (< 60s)",
+        "- Each scene: visual description + narration text + duration",
+        "- First scene must hook in 1-3 seconds",
+    ],
+    db=db,
+    markdown=True,
+)
+
+_media_describer = Agent(
+    name="Media Describer",
+    role="Evaluate and describe generated media concepts",
+    model=TOOL_MODEL,  # MiniMax for precise routing
+    instructions=[
+        "You evaluate media concepts (image prompts or video storyboards).",
+        "Describe how the final result would look and feel.",
+        "Rate the concept 1-10 for: visual impact, brand alignment, platform fit.",
+        "Suggest one specific improvement.",
+    ],
+    db=db,
+    markdown=True,
+)
+
+# ---------------------------------------------------------------------------
 # Creative Studio Team
 # ---------------------------------------------------------------------------
 # Route mode: routes to the right creative specialist.
@@ -3109,79 +3183,6 @@ competitor_intel_workflow = Workflow(
     ],
 )
 
-# ---------------------------------------------------------------------------
-# Media Generation Pipeline (Workflow 6)
-# ---------------------------------------------------------------------------
-# Router-based: user requests media → routes to image or video generation
-# → description/evaluation of the result.
-
-_image_generator = Agent(
-    name="Image Generator",
-    role="Generate images from text prompts using AI",
-    model=FAST_MODEL,
-    tools=[NanoBananaTools()] if os.getenv("GOOGLE_API_KEY") else [],
-    tool_call_limit=3,
-    instructions=[
-        "You are an image generation specialist.",
-        "Given a topic or request, create a detailed prompt and generate the image.",
-        "",
-        "## Process",
-        "1. Craft a detailed image prompt (50-100 words)",
-        "2. Call create_image with the prompt to generate the actual image",
-        "3. Describe the result",
-        "",
-        "## Prompt engineering tips",
-        "- Be specific about composition, lighting, and subject placement",
-        "- Include style keywords: photorealistic, illustration, 3D render, etc.",
-        "- Specify mood and color palette",
-        "- Optimize for the target platform (Instagram = 1:1 or 9:16)",
-        "",
-        "## If create_image tool is not available",
-        "Produce a detailed text prompt that can be used with any image generator.",
-        "Format: PROMPT: [prompt] | STYLE: [style] | ASPECT_RATIO: [ratio]",
-    ],
-    db=db,
-    markdown=True,
-)
-
-_video_generator = Agent(
-    name="Video Generator",
-    role="Create video storyboards and production plans",
-    model=FAST_MODEL,
-    instructions=[
-        "You are a video production specialist.",
-        "Given a topic, create a detailed video production plan.",
-        "",
-        "## Output format",
-        "CONCEPT: [1-sentence video concept]",
-        "DURATION: [target duration in seconds]",
-        "SCENES: [numbered list of scenes with visual + narration]",
-        "TRANSITIONS: [transition types between scenes]",
-        "MUSIC_MOOD: [background music style]",
-        "PLATFORM: [optimized for: reels, tiktok, youtube_shorts]",
-        "",
-        "## Rules",
-        "- Max 6 scenes for short-form (< 60s)",
-        "- Each scene: visual description + narration text + duration",
-        "- First scene must hook in 1-3 seconds",
-    ],
-    db=db,
-    markdown=True,
-)
-
-_media_describer = Agent(
-    name="Media Describer",
-    role="Evaluate and describe generated media concepts",
-    model=TOOL_MODEL,  # MiniMax for precise routing
-    instructions=[
-        "You evaluate media concepts (image prompts or video storyboards).",
-        "Describe how the final result would look and feel.",
-        "Rate the concept 1-10 for: visual impact, brand alignment, platform fit.",
-        "Suggest one specific improvement.",
-    ],
-    db=db,
-    markdown=True,
-)
 
 
 
