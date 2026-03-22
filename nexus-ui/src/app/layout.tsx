@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "@copilotkit/react-ui/styles.css";
+import { CopilotKit } from "@copilotkit/react-core";
+import Sidebar from "@/components/layout/sidebar";
 
 export const metadata: Metadata = {
   title: "NEXUS — Command Center",
@@ -26,7 +29,14 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-[#0a0a0c]">{children}</body>
+      <body className="min-h-screen bg-[#09090b] text-zinc-100 antialiased">
+        <CopilotKit runtimeUrl="/api/copilotkit" agent="nexus">
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-hidden">{children}</main>
+          </div>
+        </CopilotKit>
+      </body>
     </html>
   );
 }
