@@ -846,7 +846,36 @@ def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> 
 
 # --- WhatsApp Support Tools (shared across product agents) ---
 # Payment confirmation requires human approval before processing.
-# CRM logging and escalation are audit-only (non-blocking).
+# CRM logging and escalation create real records in Twenty CRM.
+# Twenty REST API: http://localhost:3000/rest/
+
+import requests as _requests
+
+_TWENTY_URL = os.getenv("TWENTY_BASE_URL", "http://localhost:3000")
+_TWENTY_KEY = os.getenv("TWENTY_API_KEY", "")
+_TWENTY_HEADERS = {
+    "Authorization": f"Bearer {_TWENTY_KEY}",
+    "Content-Type": "application/json",
+}
+
+
+def _twenty_create(endpoint: str, data: dict) -> dict:
+    """Create a record in Twenty CRM. Returns the response or error."""
+    if not _TWENTY_KEY:
+        return {"error": "TWENTY_API_KEY not configured"}
+    try:
+        resp = _requests.post(
+            f"{_TWENTY_URL}/rest/{endpoint}",
+            json=data,
+            headers=_TWENTY_HEADERS,
+            timeout=10,
+        )
+        if resp.ok:
+            return resp.json()
+        return {"error": f"Twenty {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"error": f"Twenty connection failed: {e}"}
+
 
 @approval  # type: ignore[arg-type]  # blocking: pauses until admin approves
 @tool(requires_confirmation=True)
@@ -861,10 +890,34 @@ def confirm_payment(
 
     Use this when a client says they made a payment or wants to pay.
     The payment will be held until an admin approves it.
+    After approval, the payment is logged in Twenty CRM as a note.
     """
+    # Create a note in Twenty CRM to record the payment
+    result = _twenty_create("notes", {
+        "title": f"Pago confirmado: {product} - {client_name}",
+        "body": (
+            f"Producto: {product}\n"
+            f"Cliente: {client_name}\n"
+            f"Monto: {amount}\n"
+            f"Metodo: {method}\n"
+            f"Referencia: {reference}\n"
+            f"Estado: APROBADO"
+        ),
+    })
+
+    # Also create a task for follow-up
+    _twenty_create("tasks", {
+        "title": f"Seguimiento pago: {client_name} ({product})",
+        "body": f"Pago de {amount} via {method}. Ref: {reference}. Verificar acreditacion.",
+        "status": "TODO",
+    })
+
+    if "error" in result:
+        return f"PAYMENT_APPROVED (CRM error: {result['error']}): {client_name} {amount} {method}"
+
     return (
-        f"PAYMENT_PENDING_APPROVAL: product={product} client={client_name} "
-        f"amount={amount} method={method} ref={reference}"
+        f"PAYMENT_CONFIRMED_AND_LOGGED: product={product} client={client_name} "
+        f"amount={amount} method={method} ref={reference} — Registrado en CRM"
     )
 
 
@@ -881,10 +934,34 @@ def log_support_ticket(
     """Log a support interaction to the CRM for tracking and analytics.
 
     Call this after resolving any customer query to maintain records.
+    Creates a note in Twenty CRM with the interaction details.
     """
+    result = _twenty_create("notes", {
+        "title": f"Soporte: {product} - {intent}",
+        "body": (
+            f"Producto: {product}\n"
+            f"Intent: {intent}\n"
+            f"Urgencia: {urgency}\n"
+            f"Lead Score: {lead_score}\n"
+            f"Resumen: {summary}\n"
+            f"Resolucion: {resolution}"
+        ),
+    })
+
+    # Create follow-up task if high urgency or high lead score
+    if urgency == "high" or lead_score >= 7:
+        _twenty_create("tasks", {
+            "title": f"Follow-up: {product} - {intent} (score: {lead_score})",
+            "body": f"Urgencia: {urgency}. {summary[:200]}",
+            "status": "TODO",
+        })
+
+    if "error" in result:
+        return f"TICKET_LOGGED (CRM error: {result['error']}): {product} {intent}"
+
     return (
-        f"TICKET_LOGGED: product={product} intent={intent} urgency={urgency} "
-        f"lead_score={lead_score} summary={summary[:100]}"
+        f"TICKET_LOGGED_IN_CRM: product={product} intent={intent} urgency={urgency} "
+        f"lead_score={lead_score} — Registrado en Twenty CRM"
     )
 
 
@@ -899,10 +976,32 @@ def escalate_to_human(
 
     Use when: complaint is serious, payment dispute, legal/compliance issue,
     client explicitly asks for a human, or you cannot resolve the issue.
+    Creates an urgent task in Twenty CRM for the support team.
     """
+    result = _twenty_create("tasks", {
+        "title": f"ESCALACION: {product} - {client_name}",
+        "body": (
+            f"Producto: {product}\n"
+            f"Cliente: {client_name}\n"
+            f"Urgencia: {urgency}\n"
+            f"Razon: {reason}\n"
+            f"Estado: REQUIERE ATENCION HUMANA"
+        ),
+        "status": "TODO",
+    })
+
+    # Also log as note for audit trail
+    _twenty_create("notes", {
+        "title": f"Escalacion: {product} - {client_name}",
+        "body": f"Escalado a humano. Razon: {reason}. Urgencia: {urgency}.",
+    })
+
+    if "error" in result:
+        return f"ESCALATED (CRM error: {result['error']}): {product} {client_name} {reason}"
+
     return (
-        f"ESCALATED: product={product} client={client_name} urgency={urgency} "
-        f"reason={reason}"
+        f"ESCALATED_AND_LOGGED: product={product} client={client_name} urgency={urgency} "
+        f"reason={reason} — Tarea creada en Twenty CRM para atencion humana"
     )
 
 
