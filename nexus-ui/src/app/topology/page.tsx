@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   Background,
@@ -31,10 +31,10 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PageHeader from "@/components/layout/page-header";
-import { runAgent, runTeam } from "@/lib/api";
+import { runAgent, runTeam, listAgents, listTeams, listWorkflows, type AgentInfo, type TeamInfo, type WorkflowInfo } from "@/lib/api";
 
 /* ------------------------------------------------------------------ */
-/* System topology data                                                */
+/* Types                                                               */
 /* ------------------------------------------------------------------ */
 
 interface AgentNode {
@@ -42,7 +42,6 @@ interface AgentNode {
   name: string;
   tools: string[];
   model: string;
-  skills?: string[];
   mcp?: string[];
   learning?: string;
 }
@@ -60,60 +59,86 @@ interface WorkflowNode {
   steps: string[];
 }
 
-const AGENTS: AgentNode[] = [
-  { id: "research-agent", name: "Research Agent", tools: ["WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "knowledge-agent", name: "Knowledge Agent", tools: ["KnowledgeBase"], model: "GPT-5-mini", learning: "minimal" },
-  { id: "automation-agent", name: "Automation Agent", tools: [], model: "MiniMax", mcp: ["n8n", "Twenty CRM"], learning: "minimal" },
-  { id: "trend-scout", name: "Trend Scout", tools: ["DuckDuckGoTools", "WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "scriptwriter", name: "Scriptwriter", tools: ["FileTools"], model: "MiniMax", learning: "minimal" },
-  { id: "creative-director", name: "Creative Director", tools: ["FileTools"], model: "MiniMax", learning: "minimal" },
-  { id: "analytics-agent", name: "Analytics Agent", tools: ["WebSearchTools", "CalculatorTools", "FileTools"], model: "MiniMax", learning: "minimal" },
-  { id: "code-review-agent", name: "Code Review Agent", tools: ["CodingTools", "ReasoningTools"], model: "MiniMax", learning: "minimal" },
-  { id: "dash", name: "Dash", tools: ["SQLTools", "WebSearchTools"], model: "MiniMax", mcp: ["Twenty CRM"], learning: "full" },
-  { id: "pal", name: "Pal", tools: ["FileTools", "PythonTools", "WebSearchTools"], model: "MiniMax", learning: "full" },
-  { id: "onboarding-agent", name: "Onboarding Agent", tools: ["WebSearchTools"], model: "MiniMax", learning: "full" },
-  { id: "email-agent", name: "Email Agent", tools: ["EmailTools"], model: "MiniMax", learning: "minimal" },
-  { id: "scheduler-agent", name: "Scheduler Agent", tools: ["TodoistTools"], model: "MiniMax", learning: "minimal" },
-  { id: "invoice-agent", name: "Invoice Agent", tools: ["confirm_payment", "log_support_ticket"], model: "MiniMax", learning: "full" },
-  { id: "product-manager", name: "Product Manager", tools: ["WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "ux-researcher", name: "UX Researcher", tools: ["WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "technical-writer", name: "Technical Writer", tools: ["FileTools"], model: "MiniMax", learning: "minimal" },
-  { id: "copywriter-es", name: "Copywriter ES", tools: ["WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "seo-strategist", name: "SEO Strategist", tools: ["WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "social-media-planner", name: "Social Media Planner", tools: ["WebSearchTools"], model: "MiniMax", learning: "minimal" },
-  { id: "whabi-support", name: "Whabi Support", tools: ["WhatsAppTools"], model: "MiniMax", learning: "full" },
-  { id: "docflow-support", name: "Docflow Support", tools: ["WhatsAppTools"], model: "MiniMax", learning: "full" },
-  { id: "aurora-support", name: "Aurora Support", tools: ["WhatsAppTools"], model: "MiniMax", learning: "full" },
-  { id: "general-support", name: "General Support", tools: ["WebSearchTools", "escalate_to_human"], model: "MiniMax", learning: "full" },
-  { id: "image-generator", name: "Image Generator", tools: ["NanoBananaTools"], model: "MiniMax" },
-  { id: "video-generator", name: "Video Generator", tools: [], model: "MiniMax" },
-  { id: "media-describer", name: "Media Describer", tools: [], model: "MiniMax" },
-];
+/* ------------------------------------------------------------------ */
+/* Static metadata (enriches API data with info the API doesn't return) */
+/* ------------------------------------------------------------------ */
 
-const TEAMS: TeamNode[] = [
-  { id: "nexus", name: "NEXUS Master", mode: "route", members: ["research-agent", "knowledge-agent", "automation-agent", "dash", "pal", "code-review-agent", "email-agent", "scheduler-agent", "invoice-agent", "onboarding-agent", "trend-scout", "analytics-agent", "cerebro", "content-factory", "product-dev", "creative-studio", "marketing-latam"] },
-  { id: "cerebro", name: "Cerebro", mode: "route", members: ["research-agent", "knowledge-agent", "automation-agent"] },
-  { id: "content-factory", name: "Content Factory", mode: "route", members: ["trend-scout", "scriptwriter", "analytics-agent"] },
-  { id: "product-dev", name: "Product Dev", mode: "coordinate", members: ["product-manager", "ux-researcher", "technical-writer"] },
-  { id: "creative-studio", name: "Creative Studio", mode: "route", members: ["image-generator", "video-generator", "media-describer"] },
-  { id: "marketing-latam", name: "Marketing Latam", mode: "coordinate", members: ["copywriter-es", "seo-strategist", "social-media-planner"] },
-  { id: "whatsapp-support", name: "WhatsApp Support", mode: "route", members: ["whabi-support", "docflow-support", "aurora-support", "general-support"] },
-];
+const AGENT_META: Record<string, { mcp?: string[]; learning?: string }> = {
+  "automation-agent": { mcp: ["n8n", "Twenty CRM"], learning: "minimal" },
+  "dash": { mcp: ["Twenty CRM"], learning: "full" },
+  "pal": { learning: "full" },
+  "onboarding-agent": { learning: "full" },
+  "invoice-agent": { learning: "full" },
+  "whabi-support": { learning: "full" },
+  "docflow-support": { learning: "full" },
+  "aurora-support": { learning: "full" },
+  "general-support": { learning: "full" },
+  "knowledge-agent": { learning: "minimal" },
+  "code-review-agent": { learning: "minimal" },
+};
 
-const WORKFLOWS: WorkflowNode[] = [
-  { id: "deep-research", name: "Deep Research", steps: ["Planner", "Scouts (parallel)", "Quality Gate", "Synthesizer"] },
-  { id: "content-production", name: "Content Production", steps: ["Trend", "Compact", "Script", "Review"] },
-  { id: "seo-content", name: "SEO Content", steps: ["Keywords", "Article", "Audit"] },
-  { id: "social-media", name: "Social Media", steps: ["Trend", "IG/TW/LI (parallel)", "Audit"] },
-  { id: "competitor-intel", name: "Competitor Intel", steps: ["3 Scouts (parallel)", "Synthesis"] },
-  { id: "client-research", name: "Client Research", steps: ["Web + KB (parallel)", "Synthesis"] },
-  { id: "media-generation", name: "Media Generation", steps: ["Router", "Generate", "Describe"] },
-];
+const WORKFLOW_STEPS: Record<string, string[]> = {
+  "deep-research": ["Planner", "Scouts (parallel)", "Quality Gate", "Synthesizer"],
+  "content-production": ["Trend", "Compact", "Script", "Review"],
+  "seo-content": ["Keywords", "Article", "Audit"],
+  "social-media-autopilot": ["Trend", "IG/TW/LI (parallel)", "Audit"],
+  "competitor-intelligence": ["3 Scouts (parallel)", "Synthesis"],
+  "client-research": ["Web + KB (parallel)", "Synthesis"],
+  "media-generation": ["Router", "Generate", "Describe"],
+};
 
 const MCP_SERVERS = [
   { id: "mcp-n8n", name: "n8n", type: "Workflow Automation" },
   { id: "mcp-twenty", name: "Twenty CRM", type: "CRM Database" },
 ];
+
+/* ------------------------------------------------------------------ */
+/* Transform API data to topology nodes                                */
+/* ------------------------------------------------------------------ */
+
+function apiAgentToNode(a: AgentInfo): AgentNode {
+  const meta = AGENT_META[a.id] || {};
+  const tools: string[] = [];
+  if (Array.isArray(a.tools)) {
+    for (const t of a.tools) {
+      if (typeof t === "string") tools.push(t);
+      else if (typeof t === "object" && t !== null && "name" in t) tools.push((t as { name: string }).name);
+    }
+  }
+  return {
+    id: a.id || a.name.toLowerCase().replace(/\s+/g, "-"),
+    name: a.name,
+    tools,
+    model: a.model?.model || a.model?.name || "MiniMax",
+    mcp: meta.mcp,
+    learning: meta.learning || "minimal",
+  };
+}
+
+function apiTeamToNode(t: TeamInfo): TeamNode {
+  return {
+    id: t.id || t.team_id || t.name.toLowerCase().replace(/\s+/g, "-"),
+    name: t.name,
+    mode: t.mode || "route",
+    members: (t.members || []).map((m) => {
+      if (typeof m === "string") return m;
+      if (typeof m === "object" && m !== null && "name" in m) {
+        const name = (m as { name: string }).name;
+        return name.toLowerCase().replace(/\s+/g, "-");
+      }
+      return String(m);
+    }),
+  };
+}
+
+function apiWorkflowToNode(w: WorkflowInfo): WorkflowNode {
+  const wfId = w.id || w.workflow_id || w.name.toLowerCase().replace(/\s+/g, "-");
+  return {
+    id: wfId,
+    name: w.name,
+    steps: WORKFLOW_STEPS[wfId] || WORKFLOW_STEPS[w.name] || ["Step 1", "Step 2", "Step 3"],
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Custom node components                                              */
@@ -222,7 +247,12 @@ const nodeTypes: NodeTypes = {
 /* Build graph layout                                                  */
 /* ------------------------------------------------------------------ */
 
-function buildGraph(onNodeClick: (type: string, id: string) => void) {
+function buildGraph(
+  AGENTS: AgentNode[],
+  TEAMS: TeamNode[],
+  WORKFLOWS: WorkflowNode[],
+  onNodeClick: (type: string, id: string) => void,
+) {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
@@ -333,10 +363,16 @@ function DetailPanel({
   type,
   id,
   onClose,
+  agents: AGENTS,
+  teams: TEAMS,
+  workflows: WORKFLOWS,
 }: {
   type: string;
   id: string;
   onClose: () => void;
+  agents: AgentNode[];
+  teams: TeamNode[];
+  workflows: WorkflowNode[];
 }) {
   const [chatInput, setChatInput] = useState("");
   const [chatOutput, setChatOutput] = useState<string | null>(null);
@@ -509,21 +545,64 @@ function DetailPanel({
 
 export default function TopologyPage() {
   const [detail, setDetail] = useState<{ type: string; id: string } | null>(null);
+  const [agents, setAgents] = useState<AgentNode[]>([]);
+  const [teams, setTeams] = useState<TeamNode[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowNode[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const handleNodeClick = useCallback((type: string, id: string) => {
     setDetail({ type, id });
   }, []);
 
-  const { nodes: initialNodes, edges: initialEdges } = buildGraph(handleNodeClick);
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  // Load data from API
+  useEffect(() => {
+    Promise.all([
+      listAgents().catch(() => []),
+      listTeams().catch(() => []),
+      listWorkflows().catch(() => []),
+    ]).then(([rawAgents, rawTeams, rawWorkflows]) => {
+      const a = Array.isArray(rawAgents) ? rawAgents.map(apiAgentToNode) : [];
+      const t = Array.isArray(rawTeams) ? rawTeams.map(apiTeamToNode) : [];
+      const w = Array.isArray(rawWorkflows) ? rawWorkflows.map(apiWorkflowToNode) : [];
+      setAgents(a);
+      setTeams(t);
+      setWorkflows(w);
+      setLoading(false);
+    });
+  }, []);
+
+  const { nodes: graphNodes, edges: graphEdges } = useMemo(
+    () => buildGraph(agents, teams, workflows, handleNodeClick),
+    [agents, teams, workflows, handleNodeClick],
+  );
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // Update nodes/edges when data loads
+  useEffect(() => {
+    if (!loading && graphNodes.length > 0) {
+      setNodes(graphNodes);
+      setEdges(graphEdges);
+    }
+  }, [graphNodes, graphEdges, loading, setNodes, setEdges]);
+
+  const badge = `${agents.length} agentes · ${teams.length} teams · ${workflows.length} workflows`;
 
   return (
     <div style={{ width: "100%", height: "100vh", display: "flex", flexDirection: "column" }}>
-      <PageHeader title="Topologia" badge="46 agentes · 7 teams · 7 workflows" />
+      <PageHeader title="Topologia" badge={loading ? "Cargando..." : badge} />
 
       <div style={{ flex: 1, position: "relative" }}>
-        <ReactFlow
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <Loader2 size={24} className="animate-spin mx-auto mb-3 text-zinc-500" />
+              <p className="text-[13px] text-zinc-600">Cargando topologia desde AgentOS...</p>
+            </div>
+          </div>
+        ) : (
+          <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
@@ -553,12 +632,16 @@ export default function TopologyPage() {
             className="!bg-[#0f0f12] !border-[#1e1e24] !rounded-xl"
           />
           </ReactFlow>
+        )}
 
         {detail && (
           <DetailPanel
             type={detail.type}
             id={detail.id}
             onClose={() => setDetail(null)}
+            agents={agents}
+            teams={teams}
+            workflows={workflows}
           />
         )}
       </div>
