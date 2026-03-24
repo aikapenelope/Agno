@@ -16,6 +16,9 @@ import {
   Sparkles,
   History,
   Network,
+  Activity,
+  BookOpen,
+  Brain,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -38,7 +41,11 @@ const NAV: NavItem[] = [
   { href: "/teams", label: "Teams", icon: Users },
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/approvals", label: "Aprobaciones", icon: CheckCircle, badge: true },
+  { href: "/traces", label: "Traces", icon: Activity },
   { href: "/history", label: "Historial", icon: History },
+  { href: "/knowledge", label: "Knowledge", icon: BookOpen },
+  { href: "/memory", label: "Memory", icon: Brain },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/schedules", label: "Schedules", icon: Calendar },
   { href: "/settings", label: "Ajustes", icon: Settings },
 ];

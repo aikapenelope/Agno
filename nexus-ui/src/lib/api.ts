@@ -136,3 +136,85 @@ export interface SessionRun {
 export const listSessions = () => request<SessionInfo[]>("/sessions");
 export const getSessionRuns = (sessionId: string) =>
   request<SessionRun[]>(`/sessions/${encodeURIComponent(sessionId)}/runs`);
+
+/* ------------------------------------------------------------------ */
+/* Traces                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface Trace {
+  trace_id: string;
+  agent_id?: string;
+  team_id?: string;
+  workflow_id?: string;
+  session_id?: string;
+  user_id?: string;
+  input?: string;
+  output?: string;
+  status?: string;
+  duration_ms?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  model?: string;
+  tool_calls?: Array<{ name: string; duration_ms?: number }>;
+  created_at?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export const listTraces = (limit = 50) =>
+  request<Trace[]>(`/traces?limit=${limit}`);
+export const getTrace = (traceId: string) =>
+  request<Trace>(`/traces/${encodeURIComponent(traceId)}`);
+export const searchTraces = (query: string) =>
+  request<Trace[]>(`/traces/search?query=${encodeURIComponent(query)}`);
+
+/* ------------------------------------------------------------------ */
+/* Metrics                                                             */
+/* ------------------------------------------------------------------ */
+
+export const getMetrics = () => request<Record<string, unknown>>("/metrics");
+export const refreshMetrics = () =>
+  request<Record<string, unknown>>("/metrics/refresh", { method: "POST" });
+
+/* ------------------------------------------------------------------ */
+/* Knowledge                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface KnowledgeContent {
+  content_id: string;
+  name?: string;
+  source?: string;
+  content_type?: string;
+  status?: string;
+  created_at?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export const listKnowledge = () => request<KnowledgeContent[]>("/knowledge/content");
+export const searchKnowledge = (query: string) =>
+  request<unknown[]>(`/knowledge/search?query=${encodeURIComponent(query)}`);
+export const getKnowledgeConfig = () => request<unknown>("/knowledge/config");
+
+export async function uploadKnowledge(file: File) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return request<unknown>("/knowledge/content", { method: "POST", body: fd });
+}
+
+/* ------------------------------------------------------------------ */
+/* Memory                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface Memory {
+  id: string;
+  user_id?: string;
+  content?: string;
+  topic?: string;
+  memory_type?: string;
+  created_at?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export const listMemories = () => request<Memory[]>("/memory");
+export const listMemoryTopics = () => request<string[]>("/memory_topics");
+export const deleteMemory = (id: string) =>
+  request<unknown>(`/memory/${id}`, { method: "DELETE" });
