@@ -109,3 +109,30 @@ export const resolveApproval = (id: string, status: "approved" | "rejected") =>
 /* ------------------------------------------------------------------ */
 
 export const listSchedules = () => request<unknown[]>("/schedules");
+
+/* ------------------------------------------------------------------ */
+/* Sessions (chat history)                                             */
+/* ------------------------------------------------------------------ */
+
+export interface SessionInfo {
+  session_id: string;
+  agent_id?: string;
+  team_id?: string;
+  user_id?: string;
+  created_at?: number;
+  updated_at?: number;
+  session_data?: Record<string, unknown>;
+}
+
+export interface SessionRun {
+  run_id: string;
+  input?: string;
+  output?: string;
+  content?: string;
+  agent_name?: string;
+  created_at?: number;
+}
+
+export const listSessions = () => request<SessionInfo[]>("/sessions");
+export const getSessionRuns = (sessionId: string) =>
+  request<SessionRun[]>(`/sessions/${encodeURIComponent(sessionId)}/runs`);
