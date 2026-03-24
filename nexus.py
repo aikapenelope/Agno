@@ -686,6 +686,7 @@ automation_agent = Agent(
 # ---------------------------------------------------------------------------
 
 cerebro = Team(
+    id="cerebro",
     name="Cerebro",
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
@@ -1088,6 +1089,7 @@ analytics_agent = Agent(
 # For content creation, use the content_production_workflow instead (deterministic).
 # This team exists for analytics requests and ad-hoc routing.
 content_team = Team(
+    id="content-factory",
     name="Content Factory",
     description="Video content production team for Instagram Reels and TikTok",
     mode=TeamMode.route,
@@ -2919,6 +2921,7 @@ general_support_agent = Agent(
 
 # --- WhatsApp Support Team (routes to product-specific agents) ---
 whatsapp_support_team = Team(
+    id="whatsapp-support",
     name="WhatsApp Support",
     description=(
         "Customer support team for WhatsApp. Routes messages to the correct "
