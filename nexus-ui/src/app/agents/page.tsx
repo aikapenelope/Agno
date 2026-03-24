@@ -43,9 +43,9 @@ function AgentCard({
       <p className="text-[11px] text-zinc-600 line-clamp-2 leading-relaxed">
         {agent.role || agent.description || "Agente especializado"}
       </p>
-      {agent.model?.id && (
+      {(agent.model?.model || agent.model?.name) && (
         <div className="mt-3 text-[10px] text-zinc-700 bg-zinc-900/50 px-2 py-0.5 rounded inline-block">
-          {agent.model.id}
+          {agent.model.model || agent.model.name}
         </div>
       )}
     </button>
@@ -90,7 +90,7 @@ function AgentDetail({
     setLoading(true);
 
     try {
-      const data = await runAgent(agent.agent_id || agent.name, msg, sessionId);
+      const data = await runAgent(agent.id || agent.name, msg, sessionId);
       const content =
         typeof data.content === "string"
           ? data.content
@@ -139,10 +139,10 @@ function AgentDetail({
 
       {/* Info bar */}
       <div className="px-6 py-3 border-b border-[#1e1e24] flex gap-4">
-        {agent.model?.id && (
+        {(agent.model?.model || agent.model?.name) && (
           <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
             <Bot size={11} />
-            <span>{agent.model.id}</span>
+            <span>{agent.model.model || agent.model.name}</span>
           </div>
         )}
         {agent.tools && agent.tools.length > 0 && (
@@ -294,7 +294,7 @@ export default function AgentsPage() {
         <div className="grid grid-cols-3 gap-3">
           {filtered.map((agent) => (
             <AgentCard
-              key={agent.agent_id || agent.name}
+              key={agent.id || agent.name}
               agent={agent}
               onClick={() => setSelected(agent)}
             />

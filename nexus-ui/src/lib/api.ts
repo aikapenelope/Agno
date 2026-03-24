@@ -28,10 +28,10 @@ function formRun(message: string, sessionId: string, userId = "nexus-ui") {
 
 export interface AgentInfo {
   name: string;
-  agent_id: string;
+  id: string;
   role?: string;
   description?: string;
-  model?: { id?: string };
+  model?: { id?: string; name?: string; model?: string };
   tools?: string[];
 }
 
@@ -49,7 +49,8 @@ export const runAgent = (agentId: string, message: string, sessionId: string) =>
 
 export interface TeamInfo {
   name: string;
-  team_id: string;
+  id: string;
+  team_id?: string;
   description?: string;
   mode?: string;
   members?: Array<{ name: string }>;
@@ -69,7 +70,8 @@ export const runTeam = (teamId: string, message: string, sessionId: string) =>
 
 export interface WorkflowInfo {
   name: string;
-  workflow_id: string;
+  id: string;
+  workflow_id?: string;
   description?: string;
 }
 
