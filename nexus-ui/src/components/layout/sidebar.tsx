@@ -15,6 +15,7 @@ import {
   Database,
   Sparkles,
   History,
+  Network,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -29,6 +30,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
+  { href: "/topology", label: "Topologia", icon: Network },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/whatsapp", label: "WhatsApp", icon: Smartphone },
   { href: "/crm", label: "CRM", icon: Database },
