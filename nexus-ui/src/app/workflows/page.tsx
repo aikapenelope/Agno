@@ -290,9 +290,9 @@ export default function WorkflowsPage() {
               {Object.entries(WORKFLOW_META).map(([id, meta]) => (
                 <WorkflowCard
                   key={id}
-                  workflow={{ name: id, workflow_id: id, description: meta.steps }}
+                  workflow={{ name: id, id: id, workflow_id: id, description: meta.steps }}
                   onRun={() =>
-                    setRunning({ name: id, workflow_id: id, description: meta.steps })
+                    setRunning({ name: id, id: id, workflow_id: id, description: meta.steps })
                   }
                 />
               ))}

@@ -489,6 +489,7 @@ _skills = (
 
 research_agent = Agent(
     name="Research Agent",
+    id="research-agent",
     role="Search the web for current information and data",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
@@ -522,6 +523,7 @@ research_agent = Agent(
 
 knowledge_agent = Agent(
     name="Knowledge Agent",
+    id="knowledge-agent",
     role="Query internal knowledge base and provide context",
     model=REASONING_MODEL,
     knowledge=knowledge_base,
@@ -635,6 +637,7 @@ if _obsidian_vault:
 
 automation_agent = Agent(
     name="Automation Agent",
+    id="automation-agent",
     role="Execute workflows, manage CRM, and run automations",
     model=TOOL_MODEL,  # Needs reliable tool calling for MCP
     tools=_automation_tools or None,  # type: ignore[arg-type]
@@ -683,6 +686,7 @@ automation_agent = Agent(
 # ---------------------------------------------------------------------------
 
 cerebro = Team(
+    id="cerebro",
     name="Cerebro",
     description="Multi-agent analysis system that decomposes complex tasks",
     members=[research_agent, knowledge_agent, automation_agent],
@@ -777,6 +781,7 @@ _deep_synthesis_skills = (
 # --- Trend Scout: finds and evaluates trending topics ---
 trend_scout = Agent(
     name="Trend Scout",
+    id="trend-scout",
     role="Research AI/tech trends and produce content briefs",
     model=TOOL_MODEL,
     tools=[
@@ -939,6 +944,7 @@ _aurora_skills = (
 # --- Scriptwriter: turns briefs into video scripts + storyboards ---
 scriptwriter = Agent(
     name="Scriptwriter",
+    id="scriptwriter",
     role="Write video scripts and storyboards for short-form content",
     model=FAST_MODEL,
     tools=[save_video_file, _video_file_tools],
@@ -992,6 +998,7 @@ scriptwriter = Agent(
 # --- Creative Director: evaluates storyboard variants visually ---
 creative_director = Agent(
     name="Creative Director",
+    id="creative-director",
     role="Evaluate video storyboards and describe how they will look visually",
     model=FAST_MODEL,
     tools=[FileTools(base_dir=Path.home() / "nexus-videos", enable_save_file=False)],
@@ -1036,6 +1043,7 @@ creative_director = Agent(
 # --- Analytics Agent: tracks performance and generates reports ---
 analytics_agent = Agent(
     name="Analytics Agent",
+    id="analytics-agent",
     role="Analyze content performance and generate optimization reports",
     model=TOOL_MODEL,
     tools=[
@@ -1081,6 +1089,7 @@ analytics_agent = Agent(
 # For content creation, use the content_production_workflow instead (deterministic).
 # This team exists for analytics requests and ad-hoc routing.
 content_team = Team(
+    id="content-factory",
     name="Content Factory",
     description="Video content production team for Instagram Reels and TikTok",
     mode=TeamMode.route,
@@ -1732,6 +1741,7 @@ _code_workspace.mkdir(exist_ok=True)
 
 code_review_agent = Agent(
     name="Code Review Agent",
+    id="code-review-agent",
     role="Review, write, and iterate on code with self-learning",
     model=TOOL_MODEL,
     tools=[
@@ -1794,6 +1804,7 @@ if _automation_tools:
 
 dash = Agent(
     name="Dash",
+    id="dash",
     role="Data analytics agent for Whabi, Docflow, and Aurora business metrics",
     model=TOOL_MODEL,
     tools=_dash_tools,
@@ -1870,6 +1881,7 @@ _pal_tools: list = [
 
 pal = Agent(
     name="Pal",
+    id="pal",
     role="Personal agent that remembers everything and organizes your world",
     model=TOOL_MODEL,
     tools=_pal_tools,
@@ -1952,6 +1964,7 @@ _onboarding_skills = (
 
 onboarding_agent = Agent(
     name="Onboarding Agent",
+    id="onboarding-agent",
     role="Guide new clients through product setup and first steps",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=3)],
@@ -2024,6 +2037,7 @@ if os.getenv("EMAIL_SENDER") and os.getenv("EMAIL_PASSKEY"):
 
 email_agent = Agent(
     name="Email Agent",
+    id="email-agent",
     role="Draft and send professional emails for follow-ups, notifications, and outreach",
     model=TOOL_MODEL,
     tools=_email_tools or [WebSearchTools(fixed_max_results=3)],
@@ -2082,6 +2096,7 @@ email_agent = Agent(
 
 scheduler_agent = Agent(
     name="Scheduler Agent",
+    id="scheduler-agent",
     role="Create reminders, schedule tasks, and manage calendar entries",
     model=TOOL_MODEL,
     tools=(_automation_tools or []) + [CalculatorTools()],  # type: ignore[operator]
@@ -2137,6 +2152,7 @@ scheduler_agent = Agent(
 
 invoice_agent = Agent(
     name="Invoice Agent",
+    id="invoice-agent",
     role="Generate quotes, invoices, and track payments for clients",
     model=TOOL_MODEL,
     tools=[confirm_payment, log_support_ticket] + (_automation_tools or []) + [CalculatorTools(), PythonTools()],  # type: ignore[operator]
@@ -2208,6 +2224,7 @@ invoice_agent = Agent(
 
 _product_manager = Agent(
     name="Product Manager",
+    id="product-manager",
     role="Prioritize features, write specs, analyze product-market fit",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
@@ -2242,6 +2259,7 @@ _product_manager = Agent(
 
 _ux_researcher = Agent(
     name="UX Researcher",
+    id="ux-researcher",
     role="Analyze user behavior, validate product decisions with data",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
@@ -2272,6 +2290,7 @@ _ux_researcher = Agent(
 
 _technical_writer = Agent(
     name="Technical Writer",
+    id="technical-writer",
     role="Document APIs, write guides, create product documentation",
     model=TOOL_MODEL,
     tools=[FileTools(base_dir=Path(__file__).parent / "knowledge")],
@@ -2470,6 +2489,7 @@ _latam_skills = (
 
 _copywriter_es = Agent(
     name="Copywriter ES",
+    id="copywriter-es",
     role="Write persuasive copy in Latam Spanish for all channels",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=3)],
@@ -2505,6 +2525,7 @@ _copywriter_es = Agent(
 
 _seo_strategist = Agent(
     name="SEO Strategist",
+    id="seo-strategist",
     role="Optimize content for Google SEO and AI citation (GEO) in Spanish",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=5)],
@@ -2540,6 +2561,7 @@ _seo_strategist = Agent(
 
 _social_media_planner = Agent(
     name="Social Media Planner",
+    id="social-media-planner",
     role="Plan social media strategy and content calendar for Latam audiences",
     model=TOOL_MODEL,
     tools=[WebSearchTools(fixed_max_results=3)],
@@ -2715,6 +2737,7 @@ _support_tools = [confirm_payment, log_support_ticket, escalate_to_human]
 # --- Whabi Support Agent ---
 whabi_support_agent = Agent(
     name="Whabi Support",
+    id="whabi-support",
     role="Customer support for Whabi WhatsApp Business CRM",
     model=TOOL_MODEL,
     tools=_support_tools + (_automation_tools or []),  # type: ignore[operator]
@@ -2762,6 +2785,7 @@ whabi_support_agent = Agent(
 # --- Docflow Support Agent ---
 docflow_support_agent = Agent(
     name="Docflow Support",
+    id="docflow-support",
     role="Customer support for Docflow Electronic Health Records system",
     model=TOOL_MODEL,
     tools=_support_tools,
@@ -2807,6 +2831,7 @@ docflow_support_agent = Agent(
 # --- Aurora Support Agent ---
 aurora_support_agent = Agent(
     name="Aurora Support",
+    id="aurora-support",
     role="Customer support for Aurora voice-first business PWA",
     model=TOOL_MODEL,
     tools=_support_tools,
@@ -2852,6 +2877,7 @@ aurora_support_agent = Agent(
 # --- General Support Agent (fallback) ---
 general_support_agent = Agent(
     name="General Support",
+    id="general-support",
     role="General customer support and product comparison",
     model=TOOL_MODEL,
     tools=[escalate_to_human, log_support_ticket, WebSearchTools(fixed_max_results=3)],
@@ -2895,6 +2921,7 @@ general_support_agent = Agent(
 
 # --- WhatsApp Support Team (routes to product-specific agents) ---
 whatsapp_support_team = Team(
+    id="whatsapp-support",
     name="WhatsApp Support",
     description=(
         "Customer support team for WhatsApp. Routes messages to the correct "
