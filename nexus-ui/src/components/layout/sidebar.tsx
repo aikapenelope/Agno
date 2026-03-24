@@ -14,6 +14,7 @@ import {
   Smartphone,
   Database,
   Sparkles,
+  History,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -35,6 +36,7 @@ const NAV: NavItem[] = [
   { href: "/teams", label: "Teams", icon: Users },
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/approvals", label: "Aprobaciones", icon: CheckCircle, badge: true },
+  { href: "/history", label: "Historial", icon: History },
   { href: "/schedules", label: "Schedules", icon: Calendar },
   { href: "/settings", label: "Ajustes", icon: Settings },
 ];
