@@ -187,10 +187,7 @@ nexus-ui/                   # Next.js frontend (16 pages)
 ## Production Checklist
 
 - [ ] Switch from SqliteDb to PostgresDb
-- [ ] Configure TAVILY_API_KEY for search quality
-- [ ] Deploy AgentOS on Hetzner (not Mac)
-- [ ] Configure WhatsApp webhook with HTTPS
-- [ ] Deploy nexus-ui to Vercel or Hetzner
-- [ ] Set up JWT + RBAC for multi-user
 - [ ] Test all workflows end-to-end
+- [ ] Configure WhatsApp webhook with HTTPS (if using WhatsApp)
 - [ ] Monitor via AgentOS tracing
+- [ ] Optional: TAVILY_API_KEY if DuckDuckGo rate limits become a problem
