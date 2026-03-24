@@ -1005,6 +1005,148 @@ def escalate_to_human(
     )
 
 
+@tool()
+def save_contact(
+    first_name: str,
+    last_name: str = "",
+    email: str = "",
+    phone: str = "",
+    job_title: str = "",
+    city: str = "",
+    company_name: str = "",
+    lead_score: int = 0,
+    product: str = "",
+    notes: str = "",
+) -> str:
+    """Save or update a contact in Twenty CRM.
+
+    ALWAYS call this when you learn a client's name, email, phone, or company.
+    Call it at the START of a conversation if the client identifies themselves,
+    and again at the END if you learned new information during the conversation.
+    """
+    person_data: dict = {
+        "name": {"firstName": first_name, "lastName": last_name},
+    }
+    if email:
+        person_data["emails"] = [{"address": email}]
+    if phone:
+        person_data["phones"] = [{"number": phone}]
+    if job_title:
+        person_data["jobTitle"] = job_title
+    if city:
+        person_data["city"] = city
+
+    result = _twenty_create("people", person_data)
+
+    # If we have notes or context, add them as a note linked to context
+    if notes or product or lead_score > 0:
+        _twenty_create("notes", {
+            "title": f"Contacto: {first_name} {last_name} ({product or 'general'})",
+            "body": (
+                f"Producto de interes: {product}\n"
+                f"Lead Score: {lead_score}\n"
+                f"Notas: {notes}"
+            ),
+        })
+
+    if "error" in result:
+        return f"CONTACT_SAVED (CRM error: {result['error']}): {first_name} {last_name}"
+
+    return (
+        f"CONTACT_SAVED: {first_name} {last_name}"
+        f"{f' ({email})' if email else ''}"
+        f"{f' tel:{phone}' if phone else ''}"
+        f"{f' empresa:{company_name}' if company_name else ''}"
+        f" — Registrado en Twenty CRM"
+    )
+
+
+@tool()
+def save_company(
+    name: str,
+    domain: str = "",
+    employees: int = 0,
+    industry: str = "",
+    address: str = "",
+    notes: str = "",
+) -> str:
+    """Save a company in Twenty CRM.
+
+    Call this when a client mentions their company name, especially if they
+    are a potential B2B client. Include domain and industry if mentioned.
+    """
+    company_data: dict = {"name": name}
+    if domain:
+        company_data["domainName"] = domain
+    if employees > 0:
+        company_data["employees"] = employees
+    if address:
+        company_data["address"] = address
+
+    result = _twenty_create("companies", company_data)
+
+    if notes or industry:
+        _twenty_create("notes", {
+            "title": f"Empresa: {name}",
+            "body": f"Industria: {industry}\nNotas: {notes}",
+        })
+
+    if "error" in result:
+        return f"COMPANY_SAVED (CRM error: {result['error']}): {name}"
+
+    return f"COMPANY_SAVED: {name}{f' ({domain})' if domain else ''} — Registrado en Twenty CRM"
+
+
+@tool()
+def log_conversation(
+    client_name: str,
+    product: str,
+    channel: str = "whatsapp",
+    summary: str = "",
+    intent: str = "",
+    sentiment: str = "neutral",
+    lead_score: int = 0,
+    next_action: str = "",
+) -> str:
+    """Log a complete conversation summary in Twenty CRM.
+
+    ALWAYS call this at the END of every conversation. Include:
+    - What the client asked about (intent)
+    - How the conversation went (sentiment: positive/neutral/negative)
+    - What to do next (next_action)
+    - Lead score if applicable
+    """
+    result = _twenty_create("notes", {
+        "title": f"Conversacion: {client_name} - {product} ({channel})",
+        "body": (
+            f"Cliente: {client_name}\n"
+            f"Canal: {channel}\n"
+            f"Producto: {product}\n"
+            f"Intent: {intent}\n"
+            f"Sentimiento: {sentiment}\n"
+            f"Lead Score: {lead_score}\n"
+            f"Resumen: {summary}\n"
+            f"Proxima accion: {next_action}"
+        ),
+    })
+
+    # Create follow-up task if there's a next action
+    if next_action:
+        _twenty_create("tasks", {
+            "title": f"Seguimiento: {client_name} ({product})",
+            "body": f"Accion: {next_action}\nContexto: {summary[:200]}",
+            "status": "TODO",
+        })
+
+    if "error" in result:
+        return f"CONVERSATION_LOGGED (CRM error: {result['error']}): {client_name}"
+
+    return (
+        f"CONVERSATION_LOGGED: {client_name} ({product}) via {channel} "
+        f"intent={intent} sentiment={sentiment} score={lead_score} — Registrado en CRM"
+    )
+
+
 # --- Domain skills for product support agents ---
 _whabi_skills = (
     Skills(
@@ -2831,7 +2973,14 @@ nexus_master = Team(
 # specialized agent with domain skills, shared tools (payment, CRM, escalation),
 # and a general fallback for unclassified messages.
 
-_support_tools = [confirm_payment, log_support_ticket, escalate_to_human]
+_support_tools = [
+    confirm_payment,
+    log_support_ticket,
+    escalate_to_human,
+    save_contact,
+    save_company,
+    log_conversation,
+]
 
 # --- Whabi Support Agent ---
 whabi_support_agent = Agent(
@@ -2864,6 +3013,9 @@ whabi_support_agent = Agent(
         "- Score 9-10: ready to buy, asked for invoice/contract",
         "",
         "## Rules",
+        "- ALWAYS save the contact using save_contact when you learn their name, email, or phone",
+        "- ALWAYS log the conversation using log_conversation at the END of every interaction",
+        "- If the client mentions their company, use save_company",
         "- ALWAYS log interactions using log_support_ticket after resolving",
         "- For payments: ALWAYS use confirm_payment (never confirm manually)",
         "- For complaints or disputes: use escalate_to_human",
