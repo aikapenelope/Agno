@@ -522,8 +522,9 @@ export default function TopologyPage() {
     <div className="h-full flex flex-col">
       <PageHeader title="Topologia" badge="46 agentes · 7 teams · 7 workflows" />
 
-      <div className="flex-1 relative">
-        <ReactFlow
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
+        <div className="absolute inset-0">
+          <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
@@ -552,7 +553,8 @@ export default function TopologyPage() {
             maskColor="rgba(0,0,0,0.8)"
             className="!bg-[#0f0f12] !border-[#1e1e24] !rounded-xl"
           />
-        </ReactFlow>
+          </ReactFlow>
+        </div>
 
         {detail && (
           <DetailPanel
