@@ -519,12 +519,11 @@ export default function TopologyPage() {
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   return (
-    <div className="h-full flex flex-col">
+    <div style={{ width: "100%", height: "100vh", display: "flex", flexDirection: "column" }}>
       <PageHeader title="Topologia" badge="46 agentes · 7 teams · 7 workflows" />
 
-      <div className="flex-1 relative" style={{ minHeight: 0 }}>
-        <div className="absolute inset-0">
-          <ReactFlow
+      <div style={{ flex: 1, position: "relative" }}>
+        <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
@@ -554,7 +553,6 @@ export default function TopologyPage() {
             className="!bg-[#0f0f12] !border-[#1e1e24] !rounded-xl"
           />
           </ReactFlow>
-        </div>
 
         {detail && (
           <DetailPanel
