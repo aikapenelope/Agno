@@ -52,9 +52,8 @@ function formatDate(d?: string): string {
   return new Date(d).toLocaleDateString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function personName(p: Person): string {
-  return [p.name?.firstName, p.name?.lastName].filter(Boolean).join(" ") || "Sin nombre";
-}
+// Use personDisplayName from twenty.ts
+import { personDisplayName, personEmail, personPhone } from "@/lib/twenty";
 
 /* ------------------------------------------------------------------ */
 /* Create contact modal                                                */
@@ -106,7 +105,7 @@ function CreateContactModal({ onClose, onCreated }: { onClose: () => void; onCre
 /* ------------------------------------------------------------------ */
 
 function ContactsTab({ people, loading, search }: { people: Person[]; loading: boolean; search: string }) {
-  const filtered = people.filter((p) => personName(p).toLowerCase().includes(search.toLowerCase()));
+  const filtered = people.filter((p) => personDisplayName(p).toLowerCase().includes(search.toLowerCase()));
   if (loading) return <div className="text-center py-12"><Loader2 size={20} className="animate-spin mx-auto mb-3 text-zinc-500" /></div>;
   if (filtered.length === 0) return <div className="text-center py-12 text-zinc-600 text-[13px]">No hay contactos{search ? ` para "${search}"` : ""}</div>;
 
@@ -118,7 +117,7 @@ function ContactsTab({ people, loading, search }: { people: Person[]; loading: b
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center"><User size={14} className="text-emerald-400" /></div>
               <div>
-                <div className="text-[13px] font-medium text-white">{personName(p)}</div>
+                <div className="text-[13px] font-medium text-white">{personDisplayName(p)}</div>
                 <div className="flex items-center gap-3 text-[11px] text-zinc-600 mt-0.5">
                   {p.jobTitle && <span className="flex items-center gap-1"><Briefcase size={9} />{p.jobTitle}</span>}
                   {p.company?.name && <span className="flex items-center gap-1"><Building2 size={9} />{p.company.name}</span>}
@@ -127,8 +126,8 @@ function ContactsTab({ people, loading, search }: { people: Person[]; loading: b
               </div>
             </div>
             <div className="flex items-center gap-3 text-[11px] text-zinc-600">
-              {p.emails?.[0]?.address && <span className="flex items-center gap-1"><Mail size={9} />{p.emails[0].address}</span>}
-              {p.phones?.[0]?.number && <span className="flex items-center gap-1"><Phone size={9} />{p.phones[0].number}</span>}
+              {personEmail(p) && <span className="flex items-center gap-1"><Mail size={9} />{personEmail(p)}</span>}
+              {personPhone(p) && <span className="flex items-center gap-1"><Phone size={9} />{personPhone(p)}</span>}
               {p.createdAt && <span>{formatDate(p.createdAt)}</span>}
             </div>
           </div>
