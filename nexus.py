@@ -3735,7 +3735,6 @@ if os.getenv("TELEGRAM_BOT_TOKEN"):
 agent_os = AgentOS(
     id="nexus",
     description="NEXUS Cerebro - Multi-agent analysis system",
-    cors_allowed_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000"],
     agents=[
         research_agent,
         knowledge_agent,
