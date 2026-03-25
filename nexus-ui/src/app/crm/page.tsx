@@ -120,7 +120,7 @@ function ContactsTab({ people, loading, search }: { people: Person[]; loading: b
                 <div className="text-[13px] font-medium text-white">{personDisplayName(p)}</div>
                 <div className="flex items-center gap-3 text-[11px] text-zinc-600 mt-0.5">
                   {p.jobTitle && <span className="flex items-center gap-1"><Briefcase size={9} />{p.jobTitle}</span>}
-                  {p.company?.name && <span className="flex items-center gap-1"><Building2 size={9} />{p.company.name}</span>}
+                  {p.companyId && <span className="flex items-center gap-1"><Building2 size={9} />Empresa vinculada</span>}
                   {p.city && <span className="flex items-center gap-1"><MapPin size={9} />{p.city}</span>}
                 </div>
               </div>
