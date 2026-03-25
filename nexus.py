@@ -2278,6 +2278,7 @@ email_agent = Agent(
             loaders=[
                 LocalSkills(str(SKILLS_DIR / "copywriting-es")),
                 LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+            LocalSkills(str(SKILLS_DIR / "twenty-crm")),
                 LocalSkills(str(SKILLS_DIR / "agent-ops")),
             ]
         )
@@ -2336,6 +2337,7 @@ scheduler_agent = Agent(
         Skills(
             loaders=[
                 LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+            LocalSkills(str(SKILLS_DIR / "twenty-crm")),
                 LocalSkills(str(SKILLS_DIR / "agent-ops")),
             ]
         )
@@ -2392,6 +2394,7 @@ invoice_agent = Agent(
         Skills(
             loaders=[
                 LocalSkills(str(SKILLS_DIR / "crm-patterns")),
+            LocalSkills(str(SKILLS_DIR / "twenty-crm")),
                 LocalSkills(str(SKILLS_DIR / "agent-ops")),
             ]
         )
