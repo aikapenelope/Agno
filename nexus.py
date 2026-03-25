@@ -585,12 +585,14 @@ if os.getenv("N8N_API_KEY"):
         )
     )
 
-# Twenty CRM: manage contacts, companies, tasks, notes.
-# Limited to core CRUD + search to avoid context overflow.
+# Twenty CRM: jezweb/twenty-mcp (29 tools, TypeScript, self-hosted support).
+# Install: npm install -g twenty-mcp-server
+# Replaces: mhenry3164/twenty-crm-mcp-server (had auth issues with self-hosted).
 if os.getenv("TWENTY_API_KEY"):
     _automation_tools.append(
         MCPTools(
-            command=f"node {Path.home()}/twenty-crm-mcp-server/index.js",
+            command="npx",
+            args=["-y", "twenty-mcp-server", "start", "--stdio"],
             env={
                 "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
                 "TWENTY_BASE_URL": os.getenv(
@@ -599,13 +601,22 @@ if os.getenv("TWENTY_API_KEY"):
             },
             include_tools=[
                 "create_person",
+                "get_person",
+                "update_person",
                 "list_people",
                 "create_company",
+                "get_company",
+                "update_company",
                 "list_companies",
                 "create_task",
+                "get_task",
+                "update_task",
                 "list_tasks",
                 "create_note",
+                "get_note",
+                "list_notes",
                 "search_records",
+                "get_metadata_objects",
             ],
             timeout_seconds=30,
         )
