@@ -860,8 +860,7 @@ _TWENTY_HEADERS = {
 
 
 def _twenty_create(endpoint: str, data: dict) -> dict:
-    """Create a record in Twenty CRM. Returns the response or error.
-    If the first attempt fails with 400, retries with alternative field formats."""
+    """Create a record in Twenty CRM. Returns the response or error."""
     if not _TWENTY_KEY:
         return {"error": "TWENTY_API_KEY not configured"}
     try:
@@ -873,28 +872,6 @@ def _twenty_create(endpoint: str, data: dict) -> dict:
         )
         if resp.ok:
             return resp.json()
-
-        # If 400 and creating a person, try alternative name format
-        if resp.status_code == 400 and endpoint == "people" and "name" in data:
-            alt_data = dict(data)
-            name = alt_data.pop("name", {})
-            alt_data["firstName"] = name.get("firstName", "")
-            alt_data["lastName"] = name.get("lastName", "")
-            # Flatten emails/phones too
-            if "emails" in alt_data:
-                alt_data["email"] = alt_data.pop("emails", [{}])[0].get("address", "")
-            if "phones" in alt_data:
-                alt_data["phone"] = alt_data.pop("phones", [{}])[0].get("number", "")
-            resp2 = _requests.post(
-                f"{_TWENTY_URL}/rest/{endpoint}",
-                json=alt_data,
-                headers=_TWENTY_HEADERS,
-                timeout=10,
-            )
-            if resp2.ok:
-                return resp2.json()
-            return {"error": f"Twenty {resp2.status_code}: {resp2.text[:200]}"}
-
         return {"error": f"Twenty {resp.status_code}: {resp.text[:200]}"}
     except Exception as e:
         return {"error": f"Twenty connection failed: {e}"}
@@ -1049,11 +1026,14 @@ def save_contact(
     """
     person_data: dict = {
         "name": {"firstName": first_name, "lastName": last_name},
+        "emails": {"primaryEmail": email, "additionalEmails": []},
+        "phones": {
+            "primaryPhoneNumber": phone,
+            "primaryPhoneCountryCode": "",
+            "primaryPhoneCallingCode": "",
+            "additionalPhones": [],
+        },
     }
-    if email:
-        person_data["emails"] = [{"address": email}]
-    if phone:
-        person_data["phones"] = [{"number": phone}]
     if job_title:
         person_data["jobTitle"] = job_title
     if city:

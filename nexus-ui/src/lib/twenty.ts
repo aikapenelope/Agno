@@ -25,28 +25,18 @@ async function twentyRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Twenty API returns data in different formats depending on version.
- * This helper extracts an array from whatever format comes back:
- * - { data: { people: [...] } }  (GraphQL-style)
- * - { data: [...] }              (REST v2)
- * - { people: [...] }            (REST v1)
- * - [...]                        (plain array)
+ * Twenty REST API response format:
+ * { data: { people: [...] }, totalCount: N, pageInfo: {...} }
  */
 function extractArray<T>(response: unknown, key: string): T[] {
   if (!response) return [];
   if (Array.isArray(response)) return response;
-
   const r = response as Record<string, unknown>;
 
   // { data: { people: [...] } }
   if (r.data && typeof r.data === "object" && !Array.isArray(r.data)) {
     const nested = r.data as Record<string, unknown>;
     if (Array.isArray(nested[key])) return nested[key] as T[];
-    // Maybe it's { data: [...] } inside
-    const values = Object.values(nested);
-    for (const v of values) {
-      if (Array.isArray(v)) return v as T[];
-    }
   }
 
   // { data: [...] }
@@ -55,12 +45,6 @@ function extractArray<T>(response: unknown, key: string): T[] {
   // { people: [...] }
   if (Array.isArray(r[key])) return r[key] as T[];
 
-  // Try any array value
-  for (const v of Object.values(r)) {
-    if (Array.isArray(v)) return v as T[];
-  }
-
-  console.warn(`Twenty: could not extract array "${key}" from response:`, JSON.stringify(response).slice(0, 300));
   return [];
 }
 
@@ -68,40 +52,38 @@ function extractArray<T>(response: unknown, key: string): T[] {
 /* People (Contacts)                                                   */
 /* ------------------------------------------------------------------ */
 
+// Twenty's actual schema (from API response)
 export interface Person {
   id: string;
-  name?: { firstName?: string; lastName?: string };
-  emails?: Array<{ address?: string; primaryEmail?: string }>;
-  phones?: Array<{ number?: string; primaryPhoneNumber?: string }>;
-  company?: { name?: string };
-  companyId?: string;
-  jobTitle?: string;
-  city?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  // Twenty may use flat fields instead of nested
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
+  name: { firstName: string; lastName: string };
+  emails: { primaryEmail: string; additionalEmails: string[] };
+  phones: {
+    primaryPhoneNumber: string;
+    primaryPhoneCountryCode: string;
+    primaryPhoneCallingCode: string;
+    additionalPhones: string[];
+  };
+  jobTitle: string;
+  city: string;
+  avatarUrl: string;
+  companyId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export function personDisplayName(p: Person): string {
-  if (p.name?.firstName || p.name?.lastName) {
-    return [p.name.firstName, p.name.lastName].filter(Boolean).join(" ");
-  }
-  if (p.firstName || p.lastName) {
-    return [p.firstName, p.lastName].filter(Boolean).join(" ");
-  }
-  return "Sin nombre";
+  return [p.name?.firstName, p.name?.lastName].filter(Boolean).join(" ") || "Sin nombre";
 }
 
 export function personEmail(p: Person): string {
-  return p.emails?.[0]?.address || p.emails?.[0]?.primaryEmail || p.email || "";
+  return p.emails?.primaryEmail || "";
 }
 
 export function personPhone(p: Person): string {
-  return p.phones?.[0]?.number || p.phones?.[0]?.primaryPhoneNumber || p.phone || "";
+  const calling = p.phones?.primaryPhoneCallingCode || "";
+  const number = p.phones?.primaryPhoneNumber || "";
+  if (!number) return "";
+  return calling ? `${calling}${number}` : number;
 }
 
 export const listPeople = async (limit = 50): Promise<Person[]> => {
@@ -116,27 +98,22 @@ export const createPerson = (data: {
   phone?: string;
   jobTitle?: string;
   city?: string;
-}) => {
-  // Try multiple field formats since Twenty schema varies
-  const body: Record<string, unknown> = {};
-
-  // Try nested name first, then flat
-  body.name = { firstName: data.firstName, lastName: data.lastName || "" };
-
-  if (data.email) {
-    body.emails = [{ address: data.email }];
-  }
-  if (data.phone) {
-    body.phones = [{ number: data.phone }];
-  }
-  if (data.jobTitle) body.jobTitle = data.jobTitle;
-  if (data.city) body.city = data.city;
-
-  return twentyRequest<unknown>("/people", {
+}) =>
+  twentyRequest<unknown>("/people", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      name: { firstName: data.firstName, lastName: data.lastName || "" },
+      emails: { primaryEmail: data.email || "", additionalEmails: [] },
+      phones: {
+        primaryPhoneNumber: data.phone || "",
+        primaryPhoneCountryCode: "",
+        primaryPhoneCallingCode: "",
+        additionalPhones: [],
+      },
+      jobTitle: data.jobTitle || "",
+      city: data.city || "",
+    }),
   });
-};
 
 /* ------------------------------------------------------------------ */
 /* Companies                                                           */
@@ -144,11 +121,11 @@ export const createPerson = (data: {
 
 export interface Company {
   id: string;
-  name?: string;
-  domainName?: string;
-  employees?: number;
-  address?: string;
-  createdAt?: string;
+  name: string;
+  domainName: string;
+  employees: number;
+  address: string;
+  createdAt: string;
 }
 
 export const listCompanies = async (limit = 50): Promise<Company[]> => {
@@ -163,7 +140,11 @@ export const createCompany = (data: {
 }) =>
   twentyRequest<unknown>("/companies", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      name: data.name,
+      domainName: data.domainName || "",
+      employees: data.employees || 0,
+    }),
   });
 
 /* ------------------------------------------------------------------ */
@@ -172,12 +153,11 @@ export const createCompany = (data: {
 
 export interface Task {
   id: string;
-  title?: string;
-  body?: string;
-  status?: string;
-  dueAt?: string;
-  assignee?: { name?: { firstName?: string; lastName?: string } };
-  createdAt?: string;
+  title: string;
+  body: string;
+  status: string;
+  dueAt: string | null;
+  createdAt: string;
 }
 
 export const listTasks = async (limit = 50): Promise<Task[]> => {
@@ -185,10 +165,10 @@ export const listTasks = async (limit = 50): Promise<Task[]> => {
   return extractArray<Task>(response, "tasks");
 };
 
-export const createTask = (data: { title: string; body?: string; dueAt?: string }) =>
+export const createTask = (data: { title: string; body?: string }) =>
   twentyRequest<unknown>("/tasks", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({ title: data.title, body: data.body || "" }),
   });
 
 /* ------------------------------------------------------------------ */
@@ -197,9 +177,9 @@ export const createTask = (data: { title: string; body?: string; dueAt?: string 
 
 export interface Note {
   id: string;
-  title?: string;
-  body?: string;
-  createdAt?: string;
+  title: string;
+  body: string;
+  createdAt: string;
 }
 
 export const listNotes = async (limit = 50): Promise<Note[]> => {
@@ -210,5 +190,5 @@ export const listNotes = async (limit = 50): Promise<Note[]> => {
 export const createNote = (data: { title: string; body: string }) =>
   twentyRequest<unknown>("/notes", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({ title: data.title, body: data.body }),
   });
