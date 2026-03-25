@@ -558,297 +558,6 @@ knowledge_agent = Agent(
 # MCP Servers (conditionally loaded based on env vars)
 # ---------------------------------------------------------------------------
 
-_automation_tools: list = []
-
-# n8n workflow builder: create, list, execute, manage n8n workflows.
-# Limited to core workflow + execution tools to avoid context overflow.
-if os.getenv("N8N_API_KEY"):
-    _automation_tools.append(
-        MCPTools(
-            command="npx -y @makafeli/n8n-workflow-builder",
-            env={
-                "N8N_HOST": "http://localhost:5678",
-                "N8N_API_KEY": os.getenv("N8N_API_KEY", ""),
-            },
-            include_tools=[
-                "list_workflows",
-                "get_workflow",
-                "create_workflow",
-                "update_workflow",
-                "activate_workflow",
-                "deactivate_workflow",
-                "execute_workflow",
-                "list_executions",
-                "get_execution",
-            ],
-            timeout_seconds=30,
-        )
-    )
-
-# Twenty CRM: mhenry3164/twenty-crm-mcp-server (stable, tested).
-# Install: git clone https://github.com/mhenry3164/twenty-crm-mcp-server.git ~/twenty-crm-mcp-server && cd ~/twenty-crm-mcp-server && npm install
-if os.getenv("TWENTY_API_KEY"):
-    _automation_tools.append(
-        MCPTools(
-            command=f"node {Path.home()}/twenty-crm-mcp-server/index.js",
-            env={
-                "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
-                "TWENTY_BASE_URL": os.getenv(
-                    "TWENTY_BASE_URL", "http://localhost:3000"
-                ),
-            },
-            include_tools=[
-                "create_person",
-                "list_people",
-                "create_company",
-                "list_companies",
-                "create_task",
-                "list_tasks",
-                "create_note",
-                "search_records",
-            ],
-            timeout_seconds=30,
-        )
-    )
-
-# Obsidian vault: read, search, and manage notes from your Obsidian vault.
-# Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
-# No API key needed -- runs locally via npx.
-_obsidian_vault = os.getenv("OBSIDIAN_VAULT_PATH")
-if _obsidian_vault:
-    _automation_tools.append(
-        MCPTools(
-            command=f"npx -y @bitbonsai/mcpvault {_obsidian_vault}",
-            include_tools=[
-                "read_note",
-                "write_note",
-                "search_notes",
-                "list_directory",
-                "get_frontmatter",
-                "manage_tags",
-            ],
-            timeout_seconds=30,
-        )
-    )
-
-# ---------------------------------------------------------------------------
-# Automation Agent
-# ---------------------------------------------------------------------------
-
-automation_agent = Agent(
-    name="Automation Agent",
-    id="automation-agent",
-    role="Execute workflows, manage CRM, and run automations",
-    model=TOOL_MODEL,  # Needs reliable tool calling for MCP
-    tools=_automation_tools or None,  # type: ignore[arg-type]
-    tool_call_limit=5,
-    pre_hooks=_guardrails,
-    post_hooks=[_quality_eval],
-    skills=_skills,
-    instructions=[
-        "You are an automation specialist with access to n8n, Twenty CRM, and Obsidian.",
-        "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
-        "When asked to do something, DO IT using your tools. Do not describe steps.",
-        "",
-        "## n8n (workflow automation)",
-        "- List, create, execute, activate, and deactivate n8n workflows.",
-        "- When asked to automate something, check if a workflow already exists first.",
-        "",
-        "## Twenty CRM",
-        "- Manage contacts (people), companies, tasks, and notes.",
-        "- Search across CRM records when asked about clients or leads.",
-        "- Create new records when requested.",
-        "",
-        "## Obsidian (knowledge vault)",
-        "- Read, search, and write notes in the Obsidian vault.",
-        "- Use search_notes to find relevant information across all notes.",
-        "- Create new notes when asked to save or document something.",
-        "",
-        "## Rules",
-        "- ALWAYS call tools first, then report results.",
-        "- Confirm before executing destructive or irreversible actions.",
-        "- If a tool call fails, report the error. Do not explain manual steps.",
-    ],
-    db=db,
-    learning=_learning,
-    add_history_to_context=True,
-    num_history_runs=3,
-    add_datetime_to_context=True,
-    markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=FOLLOWUP_MODEL,
-    compression_manager=_compression,
-)
-
-# ---------------------------------------------------------------------------
-# Cerebro Team
-# ---------------------------------------------------------------------------
-
-cerebro = Team(
-    id="cerebro",
-    name="Cerebro",
-    description="Multi-agent analysis system that decomposes complex tasks",
-    members=[research_agent, knowledge_agent, automation_agent],
-    mode=TeamMode.route,
-    respond_directly=True,
-    tool_call_limit=1,
-    model=TOOL_MODEL,  # MiniMax for precise routing
-    knowledge=knowledge_base,
-    # pre_hooks on individual agents, not team leader
-    determine_input_for_members=False,
-    instructions=[
-        "You are Cerebro, a router for the research team.",
-        "",
-        "## Routing rules (pick ONE member):",
-        "- Web research, news, market data, competitors: route to Research Agent.",
-        "- Internal documents, knowledge base, historical data: route to Knowledge Agent.",
-        "- n8n workflows, CRM, Obsidian notes: route to Automation Agent.",
-        "",
-        "If the request needs multiple sources, route to Research Agent first.",
-        "Do NOT add commentary. Return the member's response directly.",
-    ],
-    db=db,
-    # No learning on team leader (routes only, members have their own learning)
-    enable_session_summaries=False,
-    add_history_to_context=False,
-    show_members_responses=False,
-    add_datetime_to_context=False,
-    markdown=True,
-    followups=True,
-    num_followups=3,
-    followup_model=FOLLOWUP_MODEL,
-)
-
-# ---------------------------------------------------------------------------
-# Content Team (video production pipeline for Instagram Reels + TikTok)
-# ---------------------------------------------------------------------------
-# Specialized skills per agent role. Each agent only loads the skills it needs
-# to keep context lean and responses focused.
-
-_trend_scout_skills = (
-    Skills(
-        loaders=[
-            LocalSkills(str(SKILLS_DIR / "content-research")),
-            LocalSkills(str(SKILLS_DIR / "content-strategy")),
-            LocalSkills(str(SKILLS_DIR / "agent-ops")),
-        ]
-    )
-    if SKILLS_DIR.exists()
-    else None
-)
-
-_scriptwriter_skills = (
-    Skills(
-        loaders=[
-            LocalSkills(str(SKILLS_DIR / "content-strategy")),
-            LocalSkills(str(SKILLS_DIR / "remotion-video")),
-            LocalSkills(str(SKILLS_DIR / "agent-ops")),
-        ]
-    )
-    if SKILLS_DIR.exists()
-    else None
-)
-
-_analytics_skills = (
-    Skills(loaders=[LocalSkills(str(SKILLS_DIR / "campaign-analytics"))])
-    if SKILLS_DIR.exists()
-    else None
-)
-
-_deep_search_skills = (
-    Skills(
-        loaders=[
-            LocalSkills(str(SKILLS_DIR / "deep-search")),
-            LocalSkills(str(SKILLS_DIR / "agent-ops")),
-        ]
-    )
-    if SKILLS_DIR.exists()
-    else None
-)
-
-_deep_synthesis_skills = (
-    Skills(
-        loaders=[
-            LocalSkills(str(SKILLS_DIR / "deep-synthesis")),
-            LocalSkills(str(SKILLS_DIR / "agent-ops")),
-        ]
-    )
-    if SKILLS_DIR.exists()
-    else None
-)
-
-# --- Trend Scout: finds and evaluates trending topics ---
-trend_scout = Agent(
-    name="Trend Scout",
-    id="trend-scout",
-    role="Research AI/tech trends and produce content briefs",
-    model=TOOL_MODEL,
-    tools=[
-        DuckDuckGoTools(),
-        WebSearchTools(fixed_max_results=3),
-    ],
-    tool_call_limit=5,
-    retries=0,
-    pre_hooks=_guardrails,
-    skills=_trend_scout_skills,
-    instructions=[
-        "You are a trend researcher for a Spanish-language AI content brand.",
-        "Your job is to find the most relevant AI/tech trends RIGHT NOW.",
-        "",
-        "## Process (STRICT: max 3 tool calls total)",
-        "1. Do ONE broad search: 'AI news today' or similar (1 tool call)",
-        "2. Do ONE focused search on the best topic found (1 tool call)",
-        "3. Optionally check HackerNews for community signal (1 tool call)",
-        "4. STOP searching. Produce the content brief from what you have.",
-        "",
-        "## IMPORTANT: Efficiency rules",
-        "- You have a MAXIMUM of 3 tool calls. Plan them wisely.",
-        "- Do NOT use read_article or fetch full pages. Work with search snippets.",
-        "- Do NOT repeat searches with slightly different queries.",
-        "- If the first search gives good results, skip the second search.",
-        "- Prefer DuckDuckGo for web search (faster, no rate limits).",
-        "",
-        "## Output rules",
-        "- Only topics from the last 48 hours (unless evergreen explainer)",
-        "- Must have at least 2 credible sources (URLs from search results count)",
-        "- Relevance score must be 7+ to proceed",
-        "- Hooks must be in Spanish, punchy, under 10 words",
-        "- Include specific numbers and data points from search snippets",
-        "- Produce the ContentBrief structured output directly after searching",
-    ],
-    db=db,
-    learning=_learning,
-    add_datetime_to_context=True,
-    markdown=True,
-)
-
-# --- Approval-wrapped file tools for sensitive write operations ---
-# The @approval decorator requires human confirmation before the agent saves
-# files. This prevents accidental overwrites and creates an audit trail.
-_video_file_tools = FileTools(base_dir=Path.home() / "nexus-videos")
-_article_file_tools = FileTools(base_dir=Path(__file__).parent)
-
-
-@approval  # type: ignore[arg-type]  # agno's @approval handles Function objects at runtime
-@tool(requires_confirmation=True)
-def save_video_file(contents: str, file_name: str, overwrite: bool = True) -> str:
-    """Save a video storyboard JSON file. Requires approval before writing."""
-    return _video_file_tools.save_file(contents, file_name, overwrite)
-
-
-@approval(type="audit")
-@tool(requires_confirmation=True)
-def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> str:
-    """Save a blog article MDX file. Creates an audit record of the write."""
-    return _article_file_tools.save_file(contents, file_name, overwrite)
-
-
-# --- WhatsApp Support Tools (shared across product agents) ---
-# Payment confirmation requires human approval before processing.
-# CRM logging and escalation create real records in Twenty CRM.
-# Twenty REST API: http://localhost:3000/rest/
-
 import requests as _requests
 
 _TWENTY_URL = os.getenv("TWENTY_BASE_URL", "http://localhost:3000")
@@ -1149,6 +858,280 @@ def log_conversation(
         f"CONVERSATION_LOGGED: {client_name} ({product}) via {channel} "
         f"intent={intent} sentiment={sentiment} score={lead_score} — Registrado en CRM"
     )
+_automation_tools: list = []
+
+# n8n workflow builder: create, list, execute, manage n8n workflows.
+# Limited to core workflow + execution tools to avoid context overflow.
+if os.getenv("N8N_API_KEY"):
+    _automation_tools.append(
+        MCPTools(
+            command="npx -y @makafeli/n8n-workflow-builder",
+            env={
+                "N8N_HOST": "http://localhost:5678",
+                "N8N_API_KEY": os.getenv("N8N_API_KEY", ""),
+            },
+            include_tools=[
+                "list_workflows",
+                "get_workflow",
+                "create_workflow",
+                "update_workflow",
+                "activate_workflow",
+                "deactivate_workflow",
+                "execute_workflow",
+                "list_executions",
+                "get_execution",
+            ],
+            timeout_seconds=30,
+        )
+    )
+
+# Twenty CRM: direct REST API tools (no MCP server needed).
+# MCP servers (mhenry3164, jezweb) both had issues:
+# - mhenry3164: sends firstName as flat field, Twenty expects name.firstName
+# - jezweb: tries npm build inside project dir, fails
+# Direct tools call Twenty REST API with correct nested field format.
+_automation_tools.extend([save_contact, save_company, log_conversation, log_support_ticket])
+
+# Obsidian vault: read, search, and manage notes from your Obsidian vault.
+# Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
+# No API key needed -- runs locally via npx.
+_obsidian_vault = os.getenv("OBSIDIAN_VAULT_PATH")
+if _obsidian_vault:
+    _automation_tools.append(
+        MCPTools(
+            command=f"npx -y @bitbonsai/mcpvault {_obsidian_vault}",
+            include_tools=[
+                "read_note",
+                "write_note",
+                "search_notes",
+                "list_directory",
+                "get_frontmatter",
+                "manage_tags",
+            ],
+            timeout_seconds=30,
+        )
+    )
+
+# ---------------------------------------------------------------------------
+# Automation Agent
+# ---------------------------------------------------------------------------
+
+automation_agent = Agent(
+    name="Automation Agent",
+    id="automation-agent",
+    role="Execute workflows, manage CRM, and run automations",
+    model=TOOL_MODEL,  # Needs reliable tool calling for MCP
+    tools=_automation_tools or None,  # type: ignore[arg-type]
+    tool_call_limit=5,
+    pre_hooks=_guardrails,
+    post_hooks=[_quality_eval],
+    skills=_skills,
+    instructions=[
+        "You are an automation specialist with access to n8n, Twenty CRM, and Obsidian.",
+        "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
+        "When asked to do something, DO IT using your tools. Do not describe steps.",
+        "",
+        "## n8n (workflow automation)",
+        "- List, create, execute, activate, and deactivate n8n workflows.",
+        "- When asked to automate something, check if a workflow already exists first.",
+        "",
+        "## Twenty CRM (direct REST API)",
+        "- save_contact(first_name, last_name, email, phone, job_title, city, company_name, lead_score, product, notes)",
+        "- save_company(name, domain, employees, industry, address, notes)",
+        "- log_conversation(client_name, product, channel, summary, intent, sentiment, lead_score, next_action)",
+        "- log_support_ticket(product, intent, summary, resolution, urgency, lead_score)",
+        "- All data goes directly to Twenty CRM REST API",
+        "",
+        "## Obsidian (knowledge vault)",
+        "- Read, search, and write notes in the Obsidian vault.",
+        "- Use search_notes to find relevant information across all notes.",
+        "- Create new notes when asked to save or document something.",
+        "",
+        "## Rules",
+        "- ALWAYS call tools first, then report results.",
+        "- Confirm before executing destructive or irreversible actions.",
+        "- If a tool call fails, report the error. Do not explain manual steps.",
+    ],
+    db=db,
+    learning=_learning,
+    add_history_to_context=True,
+    num_history_runs=3,
+    add_datetime_to_context=True,
+    markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=FOLLOWUP_MODEL,
+    compression_manager=_compression,
+)
+
+# ---------------------------------------------------------------------------
+# Cerebro Team
+# ---------------------------------------------------------------------------
+
+cerebro = Team(
+    id="cerebro",
+    name="Cerebro",
+    description="Multi-agent analysis system that decomposes complex tasks",
+    members=[research_agent, knowledge_agent, automation_agent],
+    mode=TeamMode.route,
+    respond_directly=True,
+    tool_call_limit=1,
+    model=TOOL_MODEL,  # MiniMax for precise routing
+    knowledge=knowledge_base,
+    # pre_hooks on individual agents, not team leader
+    determine_input_for_members=False,
+    instructions=[
+        "You are Cerebro, a router for the research team.",
+        "",
+        "## Routing rules (pick ONE member):",
+        "- Web research, news, market data, competitors: route to Research Agent.",
+        "- Internal documents, knowledge base, historical data: route to Knowledge Agent.",
+        "- n8n workflows, CRM, Obsidian notes: route to Automation Agent.",
+        "",
+        "If the request needs multiple sources, route to Research Agent first.",
+        "Do NOT add commentary. Return the member's response directly.",
+    ],
+    db=db,
+    # No learning on team leader (routes only, members have their own learning)
+    enable_session_summaries=False,
+    add_history_to_context=False,
+    show_members_responses=False,
+    add_datetime_to_context=False,
+    markdown=True,
+    followups=True,
+    num_followups=3,
+    followup_model=FOLLOWUP_MODEL,
+)
+
+# ---------------------------------------------------------------------------
+# Content Team (video production pipeline for Instagram Reels + TikTok)
+# ---------------------------------------------------------------------------
+# Specialized skills per agent role. Each agent only loads the skills it needs
+# to keep context lean and responses focused.
+
+_trend_scout_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "content-research")),
+            LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_scriptwriter_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "content-strategy")),
+            LocalSkills(str(SKILLS_DIR / "remotion-video")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_analytics_skills = (
+    Skills(loaders=[LocalSkills(str(SKILLS_DIR / "campaign-analytics"))])
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_deep_search_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "deep-search")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+_deep_synthesis_skills = (
+    Skills(
+        loaders=[
+            LocalSkills(str(SKILLS_DIR / "deep-synthesis")),
+            LocalSkills(str(SKILLS_DIR / "agent-ops")),
+        ]
+    )
+    if SKILLS_DIR.exists()
+    else None
+)
+
+# --- Trend Scout: finds and evaluates trending topics ---
+trend_scout = Agent(
+    name="Trend Scout",
+    id="trend-scout",
+    role="Research AI/tech trends and produce content briefs",
+    model=TOOL_MODEL,
+    tools=[
+        DuckDuckGoTools(),
+        WebSearchTools(fixed_max_results=3),
+    ],
+    tool_call_limit=5,
+    retries=0,
+    pre_hooks=_guardrails,
+    skills=_trend_scout_skills,
+    instructions=[
+        "You are a trend researcher for a Spanish-language AI content brand.",
+        "Your job is to find the most relevant AI/tech trends RIGHT NOW.",
+        "",
+        "## Process (STRICT: max 3 tool calls total)",
+        "1. Do ONE broad search: 'AI news today' or similar (1 tool call)",
+        "2. Do ONE focused search on the best topic found (1 tool call)",
+        "3. Optionally check HackerNews for community signal (1 tool call)",
+        "4. STOP searching. Produce the content brief from what you have.",
+        "",
+        "## IMPORTANT: Efficiency rules",
+        "- You have a MAXIMUM of 3 tool calls. Plan them wisely.",
+        "- Do NOT use read_article or fetch full pages. Work with search snippets.",
+        "- Do NOT repeat searches with slightly different queries.",
+        "- If the first search gives good results, skip the second search.",
+        "- Prefer DuckDuckGo for web search (faster, no rate limits).",
+        "",
+        "## Output rules",
+        "- Only topics from the last 48 hours (unless evergreen explainer)",
+        "- Must have at least 2 credible sources (URLs from search results count)",
+        "- Relevance score must be 7+ to proceed",
+        "- Hooks must be in Spanish, punchy, under 10 words",
+        "- Include specific numbers and data points from search snippets",
+        "- Produce the ContentBrief structured output directly after searching",
+    ],
+    db=db,
+    learning=_learning,
+    add_datetime_to_context=True,
+    markdown=True,
+)
+
+# --- Approval-wrapped file tools for sensitive write operations ---
+# The @approval decorator requires human confirmation before the agent saves
+# files. This prevents accidental overwrites and creates an audit trail.
+_video_file_tools = FileTools(base_dir=Path.home() / "nexus-videos")
+_article_file_tools = FileTools(base_dir=Path(__file__).parent)
+
+
+@approval  # type: ignore[arg-type]  # agno's @approval handles Function objects at runtime
+@tool(requires_confirmation=True)
+def save_video_file(contents: str, file_name: str, overwrite: bool = True) -> str:
+    """Save a video storyboard JSON file. Requires approval before writing."""
+    return _video_file_tools.save_file(contents, file_name, overwrite)
+
+
+@approval(type="audit")
+@tool(requires_confirmation=True)
+def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> str:
+    """Save a blog article MDX file. Creates an audit record of the write."""
+    return _article_file_tools.save_file(contents, file_name, overwrite)
+
+
+# --- WhatsApp Support Tools (shared across product agents) ---
+# Payment confirmation requires human approval before processing.
+# CRM logging and escalation create real records in Twenty CRM.
+# Twenty REST API: http://localhost:3000/rest/
+
 
 
 # --- Domain skills for product support agents ---
