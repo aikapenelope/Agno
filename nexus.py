@@ -24,7 +24,7 @@ Prerequisites:
 
     MCP servers (requires Docker running with n8n and Twenty):
         - n8n workflow builder: creates and manages n8n workflows
-        - Twenty CRM: manages contacts, companies, tasks, notes
+        - Directus CRM: manages contacts, companies, tasks, notes
 
     Knowledge base:
         Drop PDF, TXT, MD, CSV, or JSON files into the knowledge/ folder.
@@ -560,31 +560,30 @@ knowledge_agent = Agent(
 
 import requests as _requests
 
-_TWENTY_URL = os.getenv("TWENTY_BASE_URL", "http://localhost:3000")
+_DIRECTUS_URL = os.getenv("DIRECTUS_URL", "http://localhost:8055")
+_DIRECTUS_TOKEN = os.getenv("DIRECTUS_TOKEN", "")
+_DIRECTUS_HEADERS = {
+    "Authorization": f"Bearer {_DIRECTUS_TOKEN}",
+    "Content-Type": "application/json",
+}
 
 
-def _twenty_create(endpoint: str, data: dict) -> dict:
-    """Create a record in Twenty CRM. Returns the response or error."""
-    # Read key on every call (not cached at import time)
-    key = os.getenv("TWENTY_API_KEY", "")
-    if not key:
-        return {"error": "TWENTY_API_KEY not configured"}
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
+def _directus_create(collection: str, data: dict) -> dict:
+    """Create a record in Directus. Returns the response or error."""
+    if not _DIRECTUS_TOKEN:
+        return {"error": "DIRECTUS_TOKEN not configured"}
     try:
         resp = _requests.post(
-            f"{_TWENTY_URL}/rest/{endpoint}",
+            f"{_DIRECTUS_URL}/items/{collection}",
             json=data,
-            headers=headers,
+            headers=_DIRECTUS_HEADERS,
             timeout=10,
         )
         if resp.ok:
             return resp.json()
-        return {"error": f"Twenty {resp.status_code}: {resp.text[:200]}"}
+        return {"error": f"Directus {resp.status_code}: {resp.text[:200]}"}
     except Exception as e:
-        return {"error": f"Twenty connection failed: {e}"}
+        return {"error": f"Directus connection failed: {e}"}
 
 
 @approval  # type: ignore[arg-type]  # blocking: pauses until admin approves
@@ -600,23 +599,18 @@ def confirm_payment(
 
     Use this when a client says they made a payment or wants to pay.
     The payment will be held until an admin approves it.
-    After approval, the payment is logged in Twenty CRM as a note.
+    After approval, the payment is logged in Directus CRM.
     """
-    # Create a note in Twenty CRM to record the payment
-    result = _twenty_create("notes", {
-        "title": f"Pago confirmado: {product} - {client_name}",
-        "body": (
-            f"Producto: {product}\n"
-            f"Cliente: {client_name}\n"
-            f"Monto: {amount}\n"
-            f"Metodo: {method}\n"
-            f"Referencia: {reference}\n"
-            f"Estado: APROBADO"
-        ),
+    result = _directus_create("payments", {
+        "amount": float(amount) if amount.replace(".", "").isdigit() else 0,
+        "method": method,
+        "reference": reference,
+        "status": "approved",
+        "approved_by": "nexus-agent",
+        "product": product,
     })
 
-    # Also create a task for follow-up
-    _twenty_create("tasks", {
+    _directus_create("tasks", {
         "title": f"Seguimiento pago: {client_name} ({product})",
         "body": f"Pago de {amount} via {method}. Ref: {reference}. Verificar acreditacion.",
         "status": "TODO",
@@ -627,7 +621,7 @@ def confirm_payment(
 
     return (
         f"PAYMENT_CONFIRMED_AND_LOGGED: product={product} client={client_name} "
-        f"amount={amount} method={method} ref={reference} — Registrado en CRM"
+        f"amount={amount} method={method} ref={reference} — Registrado en Directus"
     )
 
 
@@ -644,34 +638,30 @@ def log_support_ticket(
     """Log a support interaction to the CRM for tracking and analytics.
 
     Call this after resolving any customer query to maintain records.
-    Creates a note in Twenty CRM with the interaction details.
+    Creates a ticket in Directus CRM.
     """
-    result = _twenty_create("notes", {
-        "title": f"Soporte: {product} - {intent}",
-        "body": (
-            f"Producto: {product}\n"
-            f"Intent: {intent}\n"
-            f"Urgencia: {urgency}\n"
-            f"Lead Score: {lead_score}\n"
-            f"Resumen: {summary}\n"
-            f"Resolucion: {resolution}"
-        ),
+    result = _directus_create("tickets", {
+        "product": product,
+        "intent": intent,
+        "summary": summary,
+        "resolution": resolution,
+        "urgency": urgency,
+        "status": "resolved" if resolution else "open",
     })
 
-    # Create follow-up task if high urgency or high lead score
     if urgency == "high" or lead_score >= 7:
-        _twenty_create("tasks", {
+        _directus_create("tasks", {
             "title": f"Follow-up: {product} - {intent} (score: {lead_score})",
             "body": f"Urgencia: {urgency}. {summary[:200]}",
-            "status": "TODO",
+            "status": "todo",
         })
 
     if "error" in result:
         return f"TICKET_LOGGED (CRM error: {result['error']}): {product} {intent}"
 
     return (
-        f"TICKET_LOGGED_IN_CRM: product={product} intent={intent} urgency={urgency} "
-        f"lead_score={lead_score} — Registrado en Twenty CRM"
+        f"TICKET_LOGGED: product={product} intent={intent} urgency={urgency} "
+        f"lead_score={lead_score} — Registrado en Directus"
     )
 
 
@@ -686,9 +676,9 @@ def escalate_to_human(
 
     Use when: complaint is serious, payment dispute, legal/compliance issue,
     client explicitly asks for a human, or you cannot resolve the issue.
-    Creates an urgent task in Twenty CRM for the support team.
+    Creates an urgent task in Directus for the support team.
     """
-    result = _twenty_create("tasks", {
+    result = _directus_create("tasks", {
         "title": f"ESCALACION: {product} - {client_name}",
         "body": (
             f"Producto: {product}\n"
@@ -697,13 +687,12 @@ def escalate_to_human(
             f"Razon: {reason}\n"
             f"Estado: REQUIERE ATENCION HUMANA"
         ),
-        "status": "TODO",
+        "status": "todo",
     })
 
-    # Also log as note for audit trail
-    _twenty_create("notes", {
-        "title": f"Escalacion: {product} - {client_name}",
-        "body": f"Escalado a humano. Razon: {reason}. Urgencia: {urgency}.",
+    _directus_create("events", {
+        "type": "escalation",
+        "payload": {"product": product, "client": client_name, "reason": reason, "urgency": urgency},
     })
 
     if "error" in result:
@@ -711,7 +700,7 @@ def escalate_to_human(
 
     return (
         f"ESCALATED_AND_LOGGED: product={product} client={client_name} urgency={urgency} "
-        f"reason={reason} — Tarea creada en Twenty CRM para atencion humana"
+        f"reason={reason} — Tarea creada en Directus para atencion humana"
     )
 
 
@@ -728,38 +717,37 @@ def save_contact(
     product: str = "",
     notes: str = "",
 ) -> str:
-    """Save or update a contact in Twenty CRM.
+    """Save or update a contact in Directus CRM.
 
     ALWAYS call this when you learn a client's name, email, phone, or company.
     Call it at the START of a conversation if the client identifies themselves,
     and again at the END if you learned new information during the conversation.
     """
     person_data: dict = {
-        "name": {"firstName": first_name, "lastName": last_name},
-        "emails": {"primaryEmail": email, "additionalEmails": []},
-        "phones": {
-            "primaryPhoneNumber": phone,
-            "primaryPhoneCountryCode": "",
-            "primaryPhoneCallingCode": "",
-            "additionalPhones": [],
-        },
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
     }
     if job_title:
-        person_data["jobTitle"] = job_title
+        person_data["job_title"] = job_title
     if city:
         person_data["city"] = city
+    if product:
+        person_data["product"] = product
+    if lead_score > 0:
+        person_data["lead_score"] = lead_score
+    if company_name:
+        person_data["notes"] = f"Empresa: {company_name}"
+    person_data["source"] = "whatsapp"
+    person_data["status"] = "lead"
 
-    result = _twenty_create("people", person_data)
+    result = _directus_create("contacts", person_data)
 
-    # If we have notes or context, add them as a note linked to context
-    if notes or product or lead_score > 0:
-        _twenty_create("notes", {
-            "title": f"Contacto: {first_name} {last_name} ({product or 'general'})",
-            "body": (
-                f"Producto de interes: {product}\n"
-                f"Lead Score: {lead_score}\n"
-                f"Notas: {notes}"
-            ),
+    if notes:
+        _directus_create("events", {
+            "type": "contact_note",
+            "payload": {"name": f"{first_name} {last_name}", "product": product, "lead_score": lead_score, "notes": notes},
         })
 
     if "error" in result:
@@ -770,7 +758,7 @@ def save_contact(
         f"{f' ({email})' if email else ''}"
         f"{f' tel:{phone}' if phone else ''}"
         f"{f' empresa:{company_name}' if company_name else ''}"
-        f" — Registrado en Twenty CRM"
+        f" — Registrado en Directus"
     )
 
 
@@ -783,7 +771,7 @@ def save_company(
     address: str = "",
     notes: str = "",
 ) -> str:
-    """Save a company in Twenty CRM.
+    """Save a company in Directus CRM.
 
     Call this when a client mentions their company name, especially if they
     are a potential B2B client. Include domain and industry if mentioned.
@@ -796,18 +784,18 @@ def save_company(
     if address:
         company_data["address"] = address
 
-    result = _twenty_create("companies", company_data)
+    result = _directus_create("companies", company_data)
 
     if notes or industry:
-        _twenty_create("notes", {
-            "title": f"Empresa: {name}",
-            "body": f"Industria: {industry}\nNotas: {notes}",
+        _directus_create("events", {
+            "type": "company_note",
+            "payload": {"company": name, "industry": industry, "notes": notes},
         })
 
     if "error" in result:
         return f"COMPANY_SAVED (CRM error: {result['error']}): {name}"
 
-    return f"COMPANY_SAVED: {name}{f' ({domain})' if domain else ''} — Registrado en Twenty CRM"
+    return f"COMPANY_SAVED: {name}{f' ({domain})' if domain else ''} — Registrado en Directus"
 
 
 @tool()
@@ -821,7 +809,7 @@ def log_conversation(
     lead_score: int = 0,
     next_action: str = "",
 ) -> str:
-    """Log a complete conversation summary in Twenty CRM.
+    """Log a complete conversation summary in Directus CRM.
 
     ALWAYS call this at the END of every conversation. Include:
     - What the client asked about (intent)
@@ -829,26 +817,22 @@ def log_conversation(
     - What to do next (next_action)
     - Lead score if applicable
     """
-    result = _twenty_create("notes", {
-        "title": f"Conversacion: {client_name} - {product} ({channel})",
-        "body": (
-            f"Cliente: {client_name}\n"
-            f"Canal: {channel}\n"
-            f"Producto: {product}\n"
-            f"Intent: {intent}\n"
-            f"Sentimiento: {sentiment}\n"
-            f"Lead Score: {lead_score}\n"
-            f"Resumen: {summary}\n"
-            f"Proxima accion: {next_action}"
-        ),
+    result = _directus_create("conversations", {
+        "channel": channel,
+        "direction": "inbound",
+        "raw_message": summary,
+        "agent_response": next_action or "",
+        "intent": intent,
+        "sentiment": sentiment,
+        "lead_score": lead_score,
+        "agent_name": "nexus-support",
     })
 
-    # Create follow-up task if there's a next action
     if next_action:
-        _twenty_create("tasks", {
+        _directus_create("tasks", {
             "title": f"Seguimiento: {client_name} ({product})",
             "body": f"Accion: {next_action}\nContexto: {summary[:200]}",
-            "status": "TODO",
+            "status": "todo",
         })
 
     if "error" in result:
@@ -856,7 +840,7 @@ def log_conversation(
 
     return (
         f"CONVERSATION_LOGGED: {client_name} ({product}) via {channel} "
-        f"intent={intent} sentiment={sentiment} score={lead_score} — Registrado en CRM"
+        f"intent={intent} sentiment={sentiment} score={lead_score} — Registrado en Directus"
     )
 _automation_tools: list = []
 
@@ -885,7 +869,7 @@ if os.getenv("N8N_API_KEY"):
         )
     )
 
-# Twenty CRM: direct REST API tools (no MCP server needed).
+# Directus CRM: direct REST API tools (no MCP server needed).
 # MCP servers (mhenry3164, jezweb) both had issues:
 # - mhenry3164: sends firstName as flat field, Twenty expects name.firstName
 # - jezweb: tries npm build inside project dir, fails
@@ -927,7 +911,7 @@ automation_agent = Agent(
     post_hooks=[_quality_eval],
     skills=_skills,
     instructions=[
-        "You are an automation specialist with access to n8n, Twenty CRM, and Obsidian.",
+        "You are an automation specialist with access to n8n, Directus CRM, and Obsidian.",
         "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
         "When asked to do something, DO IT using your tools. Do not describe steps.",
         "",
@@ -935,12 +919,12 @@ automation_agent = Agent(
         "- List, create, execute, activate, and deactivate n8n workflows.",
         "- When asked to automate something, check if a workflow already exists first.",
         "",
-        "## Twenty CRM (direct REST API)",
+        "## Directus CRM (direct REST API)",
         "- save_contact(first_name, last_name, email, phone, job_title, city, company_name, lead_score, product, notes)",
         "- save_company(name, domain, employees, industry, address, notes)",
         "- log_conversation(client_name, product, channel, summary, intent, sentiment, lead_score, next_action)",
         "- log_support_ticket(product, intent, summary, resolution, urgency, lead_score)",
-        "- All data goes directly to Twenty CRM REST API",
+        "- All data goes directly to Directus CRM REST API",
         "",
         "## Obsidian (knowledge vault)",
         "- Read, search, and write notes in the Obsidian vault.",
@@ -1129,7 +1113,7 @@ def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> 
 
 # --- WhatsApp Support Tools (shared across product agents) ---
 # Payment confirmation requires human approval before processing.
-# CRM logging and escalation create real records in Twenty CRM.
+# CRM logging and escalation create real records in Directus CRM.
 # Twenty REST API: http://localhost:3000/rest/
 
 
@@ -2019,7 +2003,7 @@ code_review_agent = Agent(
 # ---------------------------------------------------------------------------
 # Dash — Data Analytics Agent
 # ---------------------------------------------------------------------------
-# Queries Twenty CRM for Whabi/Docflow/Aurora data and produces insights.
+# Queries Directus CRM for Whabi/Docflow/Aurora data and produces insights.
 # Learns query patterns, metric definitions, and business rules over time.
 # NOTE: No direct PostgreSQL access (Data Plane is remote). Uses Twenty MCP.
 
@@ -2028,7 +2012,7 @@ _dash_tools: list = [
     PythonTools(),
 ]
 if _automation_tools:
-    _dash_tools.extend(_automation_tools)  # Twenty CRM + n8n MCP
+    _dash_tools.extend(_automation_tools)  # Directus CRM + n8n MCP
 
 dash = Agent(
     name="Dash",
@@ -2046,11 +2030,11 @@ dash = Agent(
         "",
         "## Your Purpose",
         "You answer business questions about Whabi, Docflow, and Aurora using",
-        "data from Twenty CRM. You don't just fetch data — you interpret it,",
+        "data from Directus CRM. You don't just fetch data — you interpret it,",
         "find patterns, and explain what it means for the business.",
         "",
         "## Data Sources",
-        "- **Twenty CRM**: contacts, companies, tasks, notes (via MCP tools)",
+        "- **Directus CRM**: contacts, companies, tasks, notes (via MCP tools)",
         "  - search_records: find anything across CRM",
         "  - list_people: all contacts with filters",
         "  - list_companies: all companies with filters",
@@ -2321,7 +2305,7 @@ email_agent = Agent(
 # ---------------------------------------------------------------------------
 # Scheduler Agent
 # ---------------------------------------------------------------------------
-# Creates reminders, tasks, and calendar entries via Twenty CRM and n8n.
+# Creates reminders, tasks, and calendar entries via Directus CRM and n8n.
 
 scheduler_agent = Agent(
     name="Scheduler Agent",
@@ -2349,7 +2333,7 @@ scheduler_agent = Agent(
         "You respond in Spanish (Latin America neutral).",
         "",
         "## What you handle",
-        "- 'Recuerdame llamar a Juan el viernes' → create task in Twenty CRM",
+        "- 'Recuerdame llamar a Juan el viernes' → create task in Directus CRM",
         "- 'Agenda reunion con el equipo el lunes a las 10' → create task with date",
         "- 'Que tengo pendiente esta semana?' → list tasks from CRM",
         "- 'Marca como completada la tarea de...' → update task status",
@@ -2357,7 +2341,7 @@ scheduler_agent = Agent(
         "## Process",
         "1. Parse the user's request for: action, date/time, people involved",
         "2. If date is relative ('manana', 'el viernes'), calculate the actual date",
-        "3. Create the task/reminder in Twenty CRM",
+        "3. Create the task/reminder in Directus CRM",
         "4. Confirm what was created with the exact date and details",
         "",
         "## Rules",
