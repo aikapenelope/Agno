@@ -19,12 +19,12 @@ Prerequisites:
         export VOYAGE_API_KEY="your-voyage-api-key"
         export MINIMAX_API_KEY="your-minimax-api-key"
         export N8N_API_KEY="your-n8n-api-key"
-        export TWENTY_API_KEY="your-twenty-api-key"
-        export TWENTY_BASE_URL="http://localhost:3000"
+        export DIRECTUS_TOKEN="your-directus-token"
+        export DIRECTUS_URL="http://localhost:8055"
 
-    MCP servers (requires Docker running with n8n and Twenty):
+    MCP servers (requires Docker running with n8n and Directus):
         - n8n workflow builder: creates and manages n8n workflows
-        - Directus CRM: manages contacts, companies, tasks, notes
+        - Directus CRM: manages contacts, companies, tasks, conversations
 
     Knowledge base:
         Drop PDF, TXT, MD, CSV, or JSON files into the knowledge/ folder.
@@ -869,12 +869,31 @@ if os.getenv("N8N_API_KEY"):
         )
     )
 
-# Directus CRM: direct REST API tools (no MCP server needed).
-# MCP servers (mhenry3164, jezweb) both had issues:
-# - mhenry3164: sends firstName as flat field, Twenty expects name.firstName
-# - jezweb: tries npm build inside project dir, fails
-# Direct tools call Twenty REST API with correct nested field format.
+# Directus CRM: direct REST API tools + official MCP server.
+# Direct tools (save_contact, etc.) use _directus_create() for fast writes.
+# MCP server (@directus/content-mcp) gives agents full read/query access.
 _automation_tools.extend([save_contact, save_company, log_conversation, log_support_ticket])
+
+if os.getenv("DIRECTUS_TOKEN"):
+    _automation_tools.append(
+        MCPTools(
+            command="npx @directus/content-mcp@latest",
+            env={
+                "DIRECTUS_URL": os.getenv("DIRECTUS_URL", "http://localhost:8055"),
+                "DIRECTUS_TOKEN": os.getenv("DIRECTUS_TOKEN", ""),
+            },
+            include_tools=[
+                "read-items",
+                "create-item",
+                "update-item",
+                "read-collections",
+                "read-fields",
+                "read-flows",
+                "trigger-flow",
+            ],
+            timeout_seconds=30,
+        )
+    )
 
 # Obsidian vault: read, search, and manage notes from your Obsidian vault.
 # Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
@@ -1114,7 +1133,7 @@ def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> 
 # --- WhatsApp Support Tools (shared across product agents) ---
 # Payment confirmation requires human approval before processing.
 # CRM logging and escalation create real records in Directus CRM.
-# Twenty REST API: http://localhost:3000/rest/
+# Directus REST API: http://localhost:8055/items/
 
 
 
@@ -2005,7 +2024,7 @@ code_review_agent = Agent(
 # ---------------------------------------------------------------------------
 # Queries Directus CRM for Whabi/Docflow/Aurora data and produces insights.
 # Learns query patterns, metric definitions, and business rules over time.
-# NOTE: No direct PostgreSQL access (Data Plane is remote). Uses Twenty MCP.
+# NOTE: Uses Directus REST API for CRM data access.
 
 _dash_tools: list = [
     CalculatorTools(),
@@ -2261,8 +2280,7 @@ email_agent = Agent(
         Skills(
             loaders=[
                 LocalSkills(str(SKILLS_DIR / "copywriting-es")),
-                LocalSkills(str(SKILLS_DIR / "crm-patterns")),
-            LocalSkills(str(SKILLS_DIR / "twenty-crm")),
+                LocalSkills(str(SKILLS_DIR / "directus-crm")),
                 LocalSkills(str(SKILLS_DIR / "agent-ops")),
             ]
         )
@@ -2320,8 +2338,7 @@ scheduler_agent = Agent(
     skills=(
         Skills(
             loaders=[
-                LocalSkills(str(SKILLS_DIR / "crm-patterns")),
-            LocalSkills(str(SKILLS_DIR / "twenty-crm")),
+                LocalSkills(str(SKILLS_DIR / "directus-crm")),
                 LocalSkills(str(SKILLS_DIR / "agent-ops")),
             ]
         )
@@ -2377,8 +2394,7 @@ invoice_agent = Agent(
     skills=(
         Skills(
             loaders=[
-                LocalSkills(str(SKILLS_DIR / "crm-patterns")),
-            LocalSkills(str(SKILLS_DIR / "twenty-crm")),
+                LocalSkills(str(SKILLS_DIR / "directus-crm")),
                 LocalSkills(str(SKILLS_DIR / "agent-ops")),
             ]
         )
@@ -2978,7 +2994,7 @@ whabi_support_agent = Agent(
         "- Campaign creation: templates, scheduling, bulk messaging",
         "- Media handling: sending images, documents, voice messages",
         "- Payment confirmation: use confirm_payment tool (requires admin approval)",
-        "- CRM integration with Twenty: contacts, companies, tasks",
+        "- CRM integration with Directus: contacts, companies, tasks",
         "",
         "## Lead Scoring (apply when someone asks about buying)",
         "- Score 1-3: just browsing, no specific need",
