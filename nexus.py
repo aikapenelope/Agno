@@ -852,22 +852,23 @@ def save_article_file(contents: str, file_name: str, overwrite: bool = True) -> 
 import requests as _requests
 
 _TWENTY_URL = os.getenv("TWENTY_BASE_URL", "http://localhost:3000")
-_TWENTY_KEY = os.getenv("TWENTY_API_KEY", "")
-_TWENTY_HEADERS = {
-    "Authorization": f"Bearer {_TWENTY_KEY}",
-    "Content-Type": "application/json",
-}
 
 
 def _twenty_create(endpoint: str, data: dict) -> dict:
     """Create a record in Twenty CRM. Returns the response or error."""
-    if not _TWENTY_KEY:
+    # Read key on every call (not cached at import time)
+    key = os.getenv("TWENTY_API_KEY", "")
+    if not key:
         return {"error": "TWENTY_API_KEY not configured"}
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
     try:
         resp = _requests.post(
             f"{_TWENTY_URL}/rest/{endpoint}",
             json=data,
-            headers=_TWENTY_HEADERS,
+            headers=headers,
             timeout=10,
         )
         if resp.ok:
