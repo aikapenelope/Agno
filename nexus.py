@@ -591,7 +591,7 @@ if os.getenv("N8N_API_KEY"):
 if os.getenv("TWENTY_API_KEY"):
     _automation_tools.append(
         MCPTools(
-            command="npx -y twenty-mcp-server start --stdio",
+            command="twenty-mcp start --stdio",
             env={
                 "TWENTY_API_KEY": os.getenv("TWENTY_API_KEY", ""),
                 "TWENTY_BASE_URL": os.getenv(
