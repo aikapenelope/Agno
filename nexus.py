@@ -344,24 +344,8 @@ GROQ_ROUTING_MODEL = Groq(id="openai/gpt-oss-20b")
 
 # --- Learning Machine ---
 # Full learning system: profile, memory, entities, and accumulated knowledge.
-# Uses TOOL_MODEL (MiniMax M2.7) for extraction -- EntityMemory needs reliable
-# tool calling (create_entity, add_fact, add_event) which Groq cannot provide.
-# All data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
-
-# Minimal learning: only learned_knowledge (patterns, solutions).
-# Used by: research agents, content agents, scouts — stateless agents that
-# benefit from remembering patterns but don't need to track user profiles.
-# Matches Agno's official Pal/Dash pattern (cookbook/01_demo).
-_learning = LearningMachine(
-    model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling)
-    knowledge=learnings_knowledge,
-    learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
-)
-
-# Full learning: profile + memory + entities + knowledge + decision log.
-# Used by: support agents, Pal, Onboarding — agents that need to remember
-# user preferences, track entities (clients, products), and audit decisions.
-# Matches Agno's support_agent pattern (cookbook/08_learning/07_patterns).
+# ALL agents use full learning for enterprise assistant mode.
+# Data stored in SQLite (nexus.db) + LanceDB (lancedb/) locally on Mac.
 _learning_full = LearningMachine(
     model=TOOL_MODEL,  # MiniMax works for AGENTIC mode (tool calling)
     knowledge=learnings_knowledge,
@@ -506,7 +490,7 @@ research_agent = Agent(
         "Be thorough but concise.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -543,7 +527,7 @@ knowledge_agent = Agent(
         "When no relevant knowledge is found, work from conversation context.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -908,7 +892,7 @@ automation_agent = Agent(
         "- If a tool call fails, report the error. Do not explain manual steps.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -1056,7 +1040,7 @@ trend_scout = Agent(
         "- Produce the ContentBrief structured output directly after searching",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1173,7 +1157,7 @@ scriptwriter = Agent(
         '"style":{"font":"Inter","primary_color":"#1a1a2e","accent_color":"#e94560"}}',
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1219,7 +1203,7 @@ creative_director = Agent(
         "Keep it concise. The user will choose which variant to produce.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1263,7 +1247,7 @@ analytics_agent = Agent(
         "- Always compare week-over-week for trends",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_datetime_to_context=True,
     markdown=True,
 )
@@ -1697,7 +1681,7 @@ _research_synthesizer = Agent(
         "- Save the report using save_file: research-<topic-slug>-<date>.md",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     markdown=True,
     compression_manager=_compression,
 )
@@ -1826,7 +1810,7 @@ _article_writer = Agent(
         "- Save to: knowledge/blog-drafts/<slug>.mdx",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     markdown=True,
 )
 
@@ -1963,7 +1947,7 @@ code_review_agent = Agent(
         "- Use relative paths within the workspace only",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -2265,7 +2249,7 @@ email_agent = Agent(
         "- No attachments in cold outreach (spam filters)",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2321,7 +2305,7 @@ scheduler_agent = Agent(
         "- Link tasks to people in CRM when mentioned by name",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -2433,7 +2417,7 @@ _product_manager = Agent(
         "- Success metrics",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -2464,7 +2448,7 @@ _ux_researcher = Agent(
         "Back opinions with data or established UX principles.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -2497,7 +2481,7 @@ _technical_writer = Agent(
         "- Write in Spanish (Latam) unless asked otherwise",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -2699,7 +2683,7 @@ _copywriter_es = Agent(
         "Siempre entrega: headline, body, CTA, y variante alternativa.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -2735,7 +2719,7 @@ _seo_strategist = Agent(
         "meta title, meta description, y recomendaciones de optimizacion.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -2772,7 +2756,7 @@ _social_media_planner = Agent(
         "tema, hook, y CTA para cada publicacion.",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     add_history_to_context=True,
     num_history_runs=3,
     add_datetime_to_context=True,
@@ -3384,7 +3368,7 @@ _competitor_synthesizer = Agent(
         "- Be analytical: what does this MEAN for us, not just what happened",
     ],
     db=db,
-    learning=_learning,
+    learning=_learning_full,
     markdown=True,
     compression_manager=_compression,
 )
