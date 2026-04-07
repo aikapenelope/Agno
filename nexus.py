@@ -844,56 +844,10 @@ def log_conversation(
     )
 _automation_tools: list = []
 
-# n8n workflow builder: create, list, execute, manage n8n workflows.
-# Limited to core workflow + execution tools to avoid context overflow.
-if os.getenv("N8N_API_KEY"):
-    _automation_tools.append(
-        MCPTools(
-            command="npx -y @makafeli/n8n-workflow-builder",
-            env={
-                "N8N_HOST": "http://localhost:5678",
-                "N8N_API_KEY": os.getenv("N8N_API_KEY", ""),
-            },
-            include_tools=[
-                "list_workflows",
-                "get_workflow",
-                "create_workflow",
-                "update_workflow",
-                "activate_workflow",
-                "deactivate_workflow",
-                "execute_workflow",
-                "list_executions",
-                "get_execution",
-            ],
-            timeout_seconds=30,
-        )
-    )
-
-# Directus CRM: direct REST API tools + official MCP server.
-# Direct tools (save_contact, etc.) use _directus_create() for fast writes.
-# MCP server (@directus/content-mcp) gives agents full read/query access.
+# Directus CRM: direct REST API tools.
+# Uses _directus_create() to write to Directus collections.
+# No MCP server needed — direct HTTP calls are faster and more reliable.
 _automation_tools.extend([save_contact, save_company, log_conversation, log_support_ticket])
-
-if os.getenv("DIRECTUS_TOKEN"):
-    _automation_tools.append(
-        MCPTools(
-            command="npx @directus/content-mcp@latest",
-            env={
-                "DIRECTUS_URL": os.getenv("DIRECTUS_URL", "http://localhost:8055"),
-                "DIRECTUS_TOKEN": os.getenv("DIRECTUS_TOKEN", ""),
-            },
-            include_tools=[
-                "read-items",
-                "create-item",
-                "update-item",
-                "read-collections",
-                "read-fields",
-                "read-flows",
-                "trigger-flow",
-            ],
-            timeout_seconds=30,
-        )
-    )
 
 # Obsidian vault: read, search, and manage notes from your Obsidian vault.
 # Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
@@ -930,13 +884,9 @@ automation_agent = Agent(
     post_hooks=[_quality_eval],
     skills=_skills,
     instructions=[
-        "You are an automation specialist with access to n8n, Directus CRM, and Obsidian.",
+        "You are an automation specialist with access to Directus CRM and Obsidian.",
         "IMPORTANT: Always USE your tools to execute actions. NEVER just explain how to do something.",
         "When asked to do something, DO IT using your tools. Do not describe steps.",
-        "",
-        "## n8n (workflow automation)",
-        "- List, create, execute, activate, and deactivate n8n workflows.",
-        "- When asked to automate something, check if a workflow already exists first.",
         "",
         "## Directus CRM (direct REST API)",
         "- save_contact(first_name, last_name, email, phone, job_title, city, company_name, lead_score, product, notes)",
@@ -989,7 +939,7 @@ cerebro = Team(
         "## Routing rules (pick ONE member):",
         "- Web research, news, market data, competitors: route to Research Agent.",
         "- Internal documents, knowledge base, historical data: route to Knowledge Agent.",
-        "- n8n workflows, CRM, Obsidian notes: route to Automation Agent.",
+        "- CRM, Obsidian notes: route to Automation Agent.",
         "",
         "If the request needs multiple sources, route to Research Agent first.",
         "Do NOT add commentary. Return the member's response directly.",
@@ -2915,7 +2865,7 @@ nexus_master = Team(
         "## Select ONE member based on the request:",
         "- Web research, news, trends → Research Agent",
         "- Internal docs, knowledge base → Knowledge Agent",
-        "- n8n workflows, CRM operations, Obsidian → Automation Agent",
+        "- CRM operations, Obsidian → Automation Agent",
         "- Business metrics, analytics, data questions → Dash",
         "- Personal notes, bookmarks, reminders → Pal",
         "- Code review, debugging, programming → Code Review Agent",
