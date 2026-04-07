@@ -59,6 +59,7 @@ from agno.learn import (
     DecisionLogConfig,
     LearnedKnowledgeConfig,
     LearningMode,
+    SessionContextConfig,
     UserProfileConfig,
     UserMemoryConfig,
     EntityMemoryConfig,
@@ -351,9 +352,10 @@ _learning_full = LearningMachine(
     knowledge=learnings_knowledge,
     user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
     user_memory=UserMemoryConfig(mode=LearningMode.AGENTIC),
-    entity_memory=EntityMemoryConfig(mode=LearningMode.AGENTIC),
+    entity_memory=EntityMemoryConfig(mode=LearningMode.AGENTIC, namespace="aikalabs"),
     learned_knowledge=LearnedKnowledgeConfig(mode=LearningMode.AGENTIC),
     decision_log=DecisionLogConfig(mode=LearningMode.AGENTIC),
+    session_context=SessionContextConfig(enable_planning=True),
 )
 
 # --- Context Compression ---
@@ -455,6 +457,17 @@ class ResponseQualityEval(BaseEval):
 
 
 _quality_eval = ResponseQualityEval()
+
+# --- Memory Optimization ---
+# Periodically compress accumulated memories to save tokens.
+# Call via schedule or manually: POST /agents/memory-optimizer/runs
+from agno.memory import MemoryManager, SummarizeStrategy  # noqa: E402
+from agno.memory.strategies.types import MemoryOptimizationStrategyType  # noqa: E402
+
+_memory_manager = MemoryManager(
+    model=TOOL_MODEL,  # MiniMax (free, unlimited)
+    db=db,
+)
 
 # ---------------------------------------------------------------------------
 # Skills (domain knowledge loaded on demand)
@@ -3654,6 +3667,19 @@ if os.getenv("TELEGRAM_BOT_TOKEN"):
 #   }
 #
 # Manage schedules: GET/PATCH/DELETE /v1/schedules/{schedule_id}
+#
+# Recommended schedules for production:
+#
+#   # Memory optimization (daily at midnight):
+#   POST http://localhost:7777/v1/schedules
+#   {
+#     "name": "memory-optimization",
+#     "cron_expr": "0 0 * * *",
+#     "endpoint": "/v1/agents/Research Agent/runs",
+#     "method": "POST",
+#     "payload": {"message": "Optimize and summarize accumulated memories"},
+#     "timezone": "America/Bogota"
+#   }
 
 agent_os = AgentOS(
     id="nexus",
@@ -3701,6 +3727,7 @@ agent_os = AgentOS(
     tracing=True,
     scheduler=True,
     scheduler_poll_interval=30,  # Check for due schedules every 30 seconds
+    run_hooks_in_background=True,  # Post-hooks (quality eval, etc.) run non-blocking
 )
 app = agent_os.get_app()
 
