@@ -492,7 +492,7 @@ research_agent = Agent(
     id="research-agent",
     role="Search the web for current information and data",
     model=TOOL_MODEL,
-    tools=[WebSearchTools(fixed_max_results=5)],
+    tools=[WebSearchTools(fixed_max_results=5)] + _obsidian_tools,
     tool_call_limit=5,
     retries=2,  # Retry on Groq tool-call validation errors
     pre_hooks=_guardrails,
@@ -851,10 +851,11 @@ _automation_tools.extend([save_contact, save_company, log_conversation, log_supp
 
 # Obsidian vault: read, search, and manage notes from your Obsidian vault.
 # Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
-# No API key needed -- runs locally via npx.
+# Shared across all agents that need knowledge access.
+_obsidian_tools: list = []
 _obsidian_vault = os.getenv("OBSIDIAN_VAULT_PATH")
 if _obsidian_vault:
-    _automation_tools.append(
+    _obsidian_tools.append(
         MCPTools(
             command=f"npx -y @bitbonsai/mcpvault {_obsidian_vault}",
             include_tools=[
@@ -868,6 +869,7 @@ if _obsidian_vault:
             timeout_seconds=30,
         )
     )
+_automation_tools.extend(_obsidian_tools)
 
 # ---------------------------------------------------------------------------
 # Automation Agent
@@ -1928,7 +1930,7 @@ code_review_agent = Agent(
     tools=[
         CodingTools(base_dir=str(_code_workspace)),
         ReasoningTools(),
-    ],
+    ] + _obsidian_tools,
     tool_call_limit=5,
     pre_hooks=_guardrails,
     reasoning=True,
@@ -2058,7 +2060,7 @@ _pal_tools: list = [
     FileTools(base_dir=_pal_storage),
     PythonTools(),
     WebSearchTools(fixed_max_results=5),
-]
+] + _obsidian_tools
 
 pal = Agent(
     name="Pal",
