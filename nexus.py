@@ -481,6 +481,28 @@ _skills = (
 )
 
 # ---------------------------------------------------------------------------
+# Obsidian Vault MCP (shared across agents)
+# ---------------------------------------------------------------------------
+# Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
+_obsidian_tools: list = []
+_obsidian_vault = os.getenv("OBSIDIAN_VAULT_PATH")
+if _obsidian_vault:
+    _obsidian_tools.append(
+        MCPTools(
+            command=f"npx -y @bitbonsai/mcpvault {_obsidian_vault}",
+            include_tools=[
+                "read_note",
+                "write_note",
+                "search_notes",
+                "list_directory",
+                "get_frontmatter",
+                "manage_tags",
+            ],
+            timeout_seconds=30,
+        )
+    )
+
+# ---------------------------------------------------------------------------
 # Research Agent
 # ---------------------------------------------------------------------------
 
@@ -845,27 +867,6 @@ _automation_tools: list = []
 # Uses _directus_create() to write to Directus collections.
 # No MCP server needed — direct HTTP calls are faster and more reliable.
 _automation_tools.extend([save_contact, save_company, log_conversation, log_support_ticket])
-
-# Obsidian vault: read, search, and manage notes from your Obsidian vault.
-# Set OBSIDIAN_VAULT_PATH in ~/.zshrc (e.g., ~/Documents/MyVault)
-# Shared across all agents that need knowledge access.
-_obsidian_tools: list = []
-_obsidian_vault = os.getenv("OBSIDIAN_VAULT_PATH")
-if _obsidian_vault:
-    _obsidian_tools.append(
-        MCPTools(
-            command=f"npx -y @bitbonsai/mcpvault {_obsidian_vault}",
-            include_tools=[
-                "read_note",
-                "write_note",
-                "search_notes",
-                "list_directory",
-                "get_frontmatter",
-                "manage_tags",
-            ],
-            timeout_seconds=30,
-        )
-    )
 _automation_tools.extend(_obsidian_tools)
 
 # ---------------------------------------------------------------------------
